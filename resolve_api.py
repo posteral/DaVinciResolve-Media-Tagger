@@ -154,35 +154,7 @@ def set_keywords(media_pool_item: Any, keywords: list[str]) -> bool:
     return result is True
 
 
-def _thumbnail_from_timeline(resolve: Any) -> bytes | None:
-    """Try GetCurrentClipThumbnailImage() — only works on the Color page."""
-    import base64
-    from io import BytesIO
-    from PIL import Image
-
-    project_manager = resolve.GetProjectManager()
-    if project_manager is None:
-        return None
-    project = project_manager.GetCurrentProject()
-    if project is None:
-        return None
-    timeline = project.GetCurrentTimeline()
-    if timeline is None:
-        return None
-
-    data = timeline.GetCurrentClipThumbnailImage()
-    if not data or not data.get("data"):
-        return None
-
-    raw = base64.b64decode(data["data"])
-    img = Image.frombytes("RGB", (data["width"], data["height"]), raw)
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
 def _ffmpeg_path() -> str:
-    """Return the ffmpeg executable path, searching common install locations."""
     import shutil
     exe = shutil.which("ffmpeg")
     if exe:
@@ -194,7 +166,6 @@ def _ffmpeg_path() -> str:
 
 
 def _ffprobe_path() -> str:
-    """Return the ffprobe executable path, searching common install locations."""
     import shutil
     exe = shutil.which("ffprobe")
     if exe:
@@ -205,13 +176,9 @@ def _ffprobe_path() -> str:
     raise FileNotFoundError("ffprobe not found; install it with: brew install ffmpeg")
 
 
-def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
-    """Extract a mid-point frame from the source file via ffmpeg."""
+def thumbnail_from_file_path(file_path: str) -> bytes | None:
+    """Extract a mid-point frame from a media file via ffmpeg. No Resolve IPC."""
     import subprocess
-
-    file_path = media_pool_item.GetClipProperty("File Path")
-    if not file_path:
-        return None
 
     try:
         ffmpeg = _ffmpeg_path()
@@ -219,7 +186,6 @@ def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
     except FileNotFoundError:
         return None
 
-    # Probe duration so we can seek to the middle of the clip.
     try:
         probe = subprocess.run(
             [
@@ -257,18 +223,5 @@ def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
         return None
 
     return result.stdout
-
-
-def get_clip_thumbnail(resolve: Any) -> bytes | None:
-    # 1. Try the Color-page API first (zero extra dependencies).
-    png = _thumbnail_from_timeline(resolve)
-    if png is not None:
-        return png
-
-    # 2. Fall back to ffmpeg using the selected clip's file path.
-    item = get_selected_media_pool_item(resolve)
-    if item is None:
-        return None
-    return _thumbnail_from_file(item)
 
 
