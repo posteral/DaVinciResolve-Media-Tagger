@@ -181,6 +181,30 @@ def _thumbnail_from_timeline(resolve: Any) -> bytes | None:
     return buf.getvalue()
 
 
+def _ffmpeg_path() -> str:
+    """Return the ffmpeg executable path, searching common install locations."""
+    import shutil
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    for candidate in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"):
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError("ffmpeg not found; install it with: brew install ffmpeg")
+
+
+def _ffprobe_path() -> str:
+    """Return the ffprobe executable path, searching common install locations."""
+    import shutil
+    exe = shutil.which("ffprobe")
+    if exe:
+        return exe
+    for candidate in ("/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"):
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError("ffprobe not found; install it with: brew install ffmpeg")
+
+
 def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
     """Extract a mid-point frame from the source file via ffmpeg."""
     import subprocess
@@ -189,11 +213,17 @@ def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
     if not file_path:
         return None
 
+    try:
+        ffmpeg = _ffmpeg_path()
+        ffprobe = _ffprobe_path()
+    except FileNotFoundError:
+        return None
+
     # Probe duration so we can seek to the middle of the clip.
     try:
         probe = subprocess.run(
             [
-                "ffprobe", "-v", "error",
+                ffprobe, "-v", "error",
                 "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 file_path,
@@ -210,7 +240,7 @@ def _thumbnail_from_file(media_pool_item: Any) -> bytes | None:
     try:
         result = subprocess.run(
             [
-                "ffmpeg", "-ss", str(seek),
+                ffmpeg, "-ss", str(seek),
                 "-i", file_path,
                 "-frames:v", "1",
                 "-f", "image2pipe",
