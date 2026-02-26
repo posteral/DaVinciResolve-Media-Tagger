@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-02-26
+
+### Fixed
+
+- "Current Status" section now correctly reflects v0.2 as the current release.
+- No-clip-selected error example corrected to match actual stderr output (`ERROR: ...`).
+- v0.2 requirements section is now self-contained instead of referencing v0.
+
 ## [0.2.0] - 2026-02-26
 
 ### Added
