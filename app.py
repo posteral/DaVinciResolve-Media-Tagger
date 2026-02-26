@@ -48,7 +48,11 @@ def clip_thumbnail():
             item = resolve_api.get_selected_media_pool_item(resolve)
             if item is None:
                 return "", 204
-            file_path = item.GetClipProperty("File Path") or ""
+            file_path = (
+                item.GetClipProperty("Proxy Media Path")
+                or item.GetClipProperty("File Path")
+                or ""
+            )
     except Exception:
         return "", 204
 
