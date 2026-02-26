@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-26
+
+### Added
+
+- `POST /api/clip/keywords` — writes an updated keyword list back to the selected clip in Resolve.
+- Keyword tags in the UI now show a × button; clicking it opens an inline confirmation modal.
+- Inline confirmation modal shows the keyword name with Cancel / Remove actions.
+- Save button (hidden until a keyword is removed) posts the current keyword list to Resolve and shows a brief "Saved" confirmation.
+- `renderKeywords()` extracted so both `refresh()` and the modal confirm path redraw just the keyword list.
+
 ## [0.2.1] - 2026-02-26
 
 ### Fixed

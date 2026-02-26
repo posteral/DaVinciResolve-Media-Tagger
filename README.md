@@ -4,8 +4,8 @@ Python agent for reading and writing keyword metadata on clips in DaVinci Resolv
 
 ## Current Status
 
-- `v0.2` is the current release.
-- Includes a browser-based UI (`app.py`) and a full CLI (`main.py`) with read/write support.
+- `v0.3` is the current release.
+- Includes a browser-based UI (`app.py`) with keyword removal and a full CLI (`main.py`) with read/write support.
 
 ## v0 (Implemented)
 
@@ -129,6 +129,38 @@ Then open `http://localhost:5000` in your browser and click **Refresh**.
 
 ```json
 {"clip": "A001_C003_0215AB", "keywords": ["interview", "city", "night"]}
+```
+
+On error:
+
+```json
+{"error": "No clip selected"}
+```
+
+## v0.3 (Implemented)
+
+Goal: keyword removal via the browser UI with write-back to Resolve.
+
+### What It Does
+
+- Each keyword tag displays a × button.
+- Clicking × opens an inline confirmation modal showing the keyword name.
+- **Cancel** closes the modal with no change; **Remove** removes the keyword from the list.
+- A **Save** button appears after any removal; clicking it writes the updated list back to Resolve.
+- A brief "Saved" confirmation appears on success; errors are shown inline.
+
+### API
+
+`POST /api/clip/keywords` — writes keywords to the selected clip:
+
+```json
+{"keywords": ["interview", "city"]}
+```
+
+Response on success:
+
+```json
+{"clip": "A001_C003_0215AB", "keywords": ["interview", "city"]}
 ```
 
 On error:
