@@ -329,13 +329,21 @@
         return;
       }
 
-      const items = currentKeywords.map(k =>
-        `<li>
-          ${escapeHtml(k)}
-          <button class="kw-remove" title="Remove keyword" onclick="askRemove(${JSON.stringify(k)})">×</button>
-        </li>`
-      ).join('');
-      container.innerHTML = `<ul class="keyword-list">${items}</ul>`;
+      const ul = document.createElement('ul');
+      ul.className = 'keyword-list';
+      currentKeywords.forEach(k => {
+        const li = document.createElement('li');
+        li.textContent = k;
+        const btn = document.createElement('button');
+        btn.className = 'kw-remove';
+        btn.title = 'Remove keyword';
+        btn.textContent = '×';
+        btn.addEventListener('click', () => askRemove(k));
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+      container.innerHTML = '';
+      container.appendChild(ul);
     }
 
     function askRemove(keyword) {
