@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify, request
-import main
+import resolve_api
 
 app = Flask(__name__)
 
@@ -12,17 +12,17 @@ def index():
 @app.route("/api/clip")
 def clip():
     try:
-        resolve = main.get_resolve()
+        resolve = resolve_api.get_resolve()
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-    item = main.get_selected_media_pool_item(resolve)
+    item = resolve_api.get_selected_media_pool_item(resolve)
     if item is None:
         return jsonify({"error": "No clip selected"}), 404
 
     return jsonify({
         "clip": item.GetName() or "<unnamed clip>",
-        "keywords": main.get_keywords(item),
+        "keywords": resolve_api.get_keywords(item),
     })
 
 
@@ -34,15 +34,15 @@ def set_keywords():
         return jsonify({"error": "keywords must be a list"}), 400
 
     try:
-        resolve = main.get_resolve()
+        resolve = resolve_api.get_resolve()
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-    item = main.get_selected_media_pool_item(resolve)
+    item = resolve_api.get_selected_media_pool_item(resolve)
     if item is None:
         return jsonify({"error": "No clip selected"}), 404
 
-    ok = main.set_keywords(item, keywords)
+    ok = resolve_api.set_keywords(item, keywords)
     if not ok:
         return jsonify({"error": "Resolve rejected the write. Check External Scripting is enabled."}), 500
 

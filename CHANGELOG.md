@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-02-26
+
+### Changed
+
+- Extracted Resolve scripting API functions into `resolve_api.py`; `main.py` is now CLI-only.
+- `app.py` now imports from `resolve_api` directly.
+
 ## [0.3.1] - 2026-02-26
 
 ### Fixed
