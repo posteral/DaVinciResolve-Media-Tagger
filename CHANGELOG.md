@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-26
+
+### Added
+
+- `app.py` — Flask web server with two routes:
+  - `GET /` — serves the browser UI.
+  - `GET /api/clip` — returns the selected clip name and keywords as JSON.
+- `templates/index.html` — minimal browser UI with a Refresh button, loading state, keyword tag list, and error display; no external dependencies.
+- `requirements.txt` — pins `flask>=3.0`.
+
 ## [0.1.0] - 2026-02-26
 
 ### Added

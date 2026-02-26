@@ -94,6 +94,53 @@ python3 main.py --set "a, b" --dry-run --json
 python3 -m unittest test_main -v
 ```
 
+## v0.2 (Implemented)
+
+Goal: browser-based read-only UI for the selected clip's name and keywords.
+
+### What It Does
+
+- Starts a local Flask server on `http://localhost:5000`.
+- Displays the currently selected clip name and its keywords in the browser.
+- "Refresh" button fetches live data from Resolve without reloading the page.
+- Shows a loading state while fetching and an error message if no clip is selected or Resolve is not running.
+
+### Requirements
+
+All v0 requirements, plus:
+
+```bash
+pip install flask
+```
+
+Or use `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Run
+
+```bash
+python app.py
+```
+
+Then open `http://localhost:5000` in your browser and click **Refresh**.
+
+### API
+
+`GET /api/clip` — returns JSON:
+
+```json
+{"clip": "A001_C003_0215AB", "keywords": ["interview", "city", "night"]}
+```
+
+On error:
+
+```json
+{"error": "No clip selected"}
+```
+
 ## Target Final Version (v1 Vision)
 
 The intended end-state is an AI-assisted keywording workflow that:
