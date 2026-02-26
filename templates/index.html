@@ -37,12 +37,18 @@
       text-transform: uppercase;
     }
 
-    #refresh-btn {
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    #refresh-btn, #save-btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: #3a7bd5;
-      color: #fff;
       border: none;
       border-radius: 6px;
       padding: 9px 18px;
@@ -50,11 +56,24 @@
       font-weight: 500;
       cursor: pointer;
       transition: background 0.15s;
-      margin-bottom: 28px;
+    }
+
+    #refresh-btn {
+      background: #3a7bd5;
+      color: #fff;
     }
 
     #refresh-btn:hover:not(:disabled) { background: #2f68bd; }
     #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #save-btn {
+      background: #2a7a4a;
+      color: #fff;
+      display: none;
+    }
+
+    #save-btn:hover:not(:disabled) { background: #236040; }
+    #save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .spinner {
       width: 14px;
@@ -100,9 +119,29 @@
       background: #333;
       border: 1px solid #444;
       border-radius: 4px;
-      padding: 3px 10px;
+      padding: 3px 6px 3px 10px;
       font-size: 0.85rem;
       color: #d0d0d0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .kw-remove {
+      background: none;
+      border: none;
+      color: #777;
+      cursor: pointer;
+      font-size: 0.9rem;
+      line-height: 1;
+      padding: 0 2px;
+      border-radius: 3px;
+      transition: color 0.1s, background 0.1s;
+    }
+
+    .kw-remove:hover {
+      color: #f08080;
+      background: rgba(240, 128, 128, 0.12);
     }
 
     .no-keywords {
@@ -125,23 +164,123 @@
       font-size: 0.875rem;
       color: #555;
     }
+
+    .saved-msg {
+      font-size: 0.85rem;
+      color: #5db87a;
+      font-weight: 500;
+    }
+
+    /* Modal */
+    #modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #modal.open { display: flex; }
+
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+    }
+
+    .modal-card {
+      position: relative;
+      background: #2e2e2e;
+      border: 1px solid #444;
+      border-radius: 10px;
+      padding: 28px 28px 24px;
+      width: 100%;
+      max-width: 340px;
+      z-index: 1;
+    }
+
+    .modal-card p {
+      margin: 0 0 20px;
+      font-size: 0.95rem;
+      color: #d0d0d0;
+      line-height: 1.5;
+    }
+
+    .modal-card strong {
+      color: #e8e8e8;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .modal-actions button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #modal-cancel {
+      background: #3a3a3a;
+      color: #ccc;
+    }
+
+    #modal-cancel:hover { background: #444; }
+
+    #modal-confirm {
+      background: #9b2020;
+      color: #fff;
+    }
+
+    #modal-confirm:hover { background: #7e1a1a; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Clip Keywords</h1>
 
-    <button id="refresh-btn" onclick="refresh()">
-      <span class="spinner" id="spinner"></span>
-      <span id="btn-label">Refresh</span>
-    </button>
+    <div class="btn-row">
+      <button id="refresh-btn" onclick="refresh()">
+        <span class="spinner" id="spinner"></span>
+        <span id="btn-label">Refresh</span>
+      </button>
+
+      <button id="save-btn" onclick="save()">
+        <span class="spinner" id="save-spinner"></span>
+        <span id="save-label">Save</span>
+      </button>
+
+      <span id="saved-msg" class="saved-msg" style="display:none">Saved</span>
+    </div>
 
     <div id="status-area">
       <p class="idle">Click Refresh to load the currently selected clip.</p>
     </div>
   </div>
 
+  <!-- Inline confirmation modal -->
+  <div id="modal" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-card">
+      <p>Remove <strong id="modal-kw-name"></strong>?</p>
+      <div class="modal-actions">
+        <button id="modal-cancel" onclick="closeModal()">Cancel</button>
+        <button id="modal-confirm" onclick="confirmRemove()">Remove</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    let currentKeywords = [];
+    let pendingRemoval = null;
+
     async function refresh() {
       const btn = document.getElementById('refresh-btn');
       const spinner = document.getElementById('spinner');
@@ -152,6 +291,7 @@
       spinner.style.display = 'block';
       label.textContent = 'Loading…';
       area.innerHTML = '';
+      hideSave();
 
       try {
         const res = await fetch('/api/clip');
@@ -162,16 +302,15 @@
           return;
         }
 
-        const kwHtml = data.keywords.length
-          ? `<ul class="keyword-list">${data.keywords.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul>`
-          : `<p class="no-keywords">(none)</p>`;
+        currentKeywords = data.keywords.slice();
 
         area.innerHTML = `
           <div class="label">Clip</div>
           <div class="clip-name">${escapeHtml(data.clip)}</div>
           <div class="label">Keywords</div>
-          ${kwHtml}
+          <div id="kw-container"></div>
         `;
+        renderKeywords();
       } catch (err) {
         area.innerHTML = `<div class="error-box">Could not reach the server. Is it running?</div>`;
       } finally {
@@ -179,6 +318,100 @@
         spinner.style.display = 'none';
         label.textContent = 'Refresh';
       }
+    }
+
+    function renderKeywords() {
+      const container = document.getElementById('kw-container');
+      if (!container) return;
+
+      if (currentKeywords.length === 0) {
+        container.innerHTML = `<p class="no-keywords">(none)</p>`;
+        return;
+      }
+
+      const items = currentKeywords.map(k =>
+        `<li>
+          ${escapeHtml(k)}
+          <button class="kw-remove" title="Remove keyword" onclick="askRemove(${JSON.stringify(k)})">×</button>
+        </li>`
+      ).join('');
+      container.innerHTML = `<ul class="keyword-list">${items}</ul>`;
+    }
+
+    function askRemove(keyword) {
+      pendingRemoval = keyword;
+      document.getElementById('modal-kw-name').textContent = keyword;
+      document.getElementById('modal').classList.add('open');
+    }
+
+    function closeModal() {
+      pendingRemoval = null;
+      document.getElementById('modal').classList.remove('open');
+    }
+
+    function confirmRemove() {
+      if (pendingRemoval !== null) {
+        currentKeywords = currentKeywords.filter(k => k !== pendingRemoval);
+        renderKeywords();
+        showSave();
+      }
+      closeModal();
+    }
+
+    async function save() {
+      const btn = document.getElementById('save-btn');
+      const spinner = document.getElementById('save-spinner');
+      const label = document.getElementById('save-label');
+      const savedMsg = document.getElementById('saved-msg');
+
+      btn.disabled = true;
+      spinner.style.display = 'block';
+      label.textContent = 'Saving…';
+      savedMsg.style.display = 'none';
+
+      const area = document.getElementById('status-area');
+      const existingError = area.querySelector('.save-error');
+      if (existingError) existingError.remove();
+
+      try {
+        const res = await fetch('/api/clip/keywords', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: currentKeywords }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          const err = document.createElement('div');
+          err.className = 'error-box save-error';
+          err.style.marginTop = '12px';
+          err.textContent = data.error || 'Unknown error';
+          area.appendChild(err);
+          return;
+        }
+
+        savedMsg.style.display = 'inline';
+        setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
+      } catch (err) {
+        const errEl = document.createElement('div');
+        errEl.className = 'error-box save-error';
+        errEl.style.marginTop = '12px';
+        errEl.textContent = 'Could not reach the server. Is it running?';
+        area.appendChild(errEl);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        label.textContent = 'Save';
+      }
+    }
+
+    function showSave() {
+      document.getElementById('save-btn').style.display = 'inline-flex';
+    }
+
+    function hideSave() {
+      document.getElementById('save-btn').style.display = 'none';
+      document.getElementById('saved-msg').style.display = 'none';
     }
 
     function escapeHtml(str) {
