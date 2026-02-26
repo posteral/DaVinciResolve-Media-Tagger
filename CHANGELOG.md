@@ -22,6 +22,15 @@ All notable changes to this project are documented in this file.
 - A brief "No more clips" flash message is shown (and then cleared) when
   navigating past the boundary instead of a persistent error box.
 
+### Fixed
+
+- Prev/Next navigation now steps through clips in the same order shown
+  in the Media Pool UI when sorted by Date Created. `GetClipList()`
+  returns clips in internal insertion order, not UI order; clips are now
+  sorted by `GetClipProperty("Date Created")` before navigating.
+  Handles `MM/DD/YYYY`, `YYYY-MM-DD`, and `DD/MM/YYYY` formats; falls
+  back to name sort if the date string is absent or unparseable.
+
 ## [0.4.1] - 2026-02-26
 
 ### Added
