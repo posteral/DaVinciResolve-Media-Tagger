@@ -232,6 +232,17 @@ class TestSuggestKeywords(unittest.TestCase):
         self.assertIn("alpha", suggestions)
         self.assertIn("beta", suggestions)
 
+    def test_excludes_clips_from_different_days(self):
+        clips = [
+            self._make_clip("yesterday", ["other_day"], "01/01/2024 23:00:00"),
+            self._make_clip("cur",       [],             "01/02/2024 10:00:00"),
+            self._make_clip("sameday",   ["same_day"],   "01/02/2024 14:00:00"),
+        ]
+        resolve = self._make_resolve(clips, "cur")
+        suggestions = resolve_api.suggest_keywords(resolve)
+        self.assertIn("same_day", suggestions)
+        self.assertNotIn("other_day", suggestions)
+
 
 class TestNormaliseAiKeyword(unittest.TestCase):
     def test_generic_phrase_lowercased(self):

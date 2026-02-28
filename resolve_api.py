@@ -204,9 +204,10 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     return new_item
 
 
-def suggest_keywords(resolve: Any, n_neighbours: int = 10) -> list[str]:
+def suggest_keywords(resolve: Any) -> list[str]:
     """Return up to 3 keyword suggestions for the current clip based on
-    keywords used by the N temporally closest clips in the same folder."""
+    keywords used by all other clips recorded on the same calendar day
+    in the same folder."""
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         return []
@@ -225,20 +226,19 @@ def suggest_keywords(resolve: Any, n_neighbours: int = 10) -> list[str]:
     if folder is None:
         return []
 
-    clips = sorted(_as_sequence(folder.GetClipList()), key=_clip_date_key)
+    clips = _as_sequence(folder.GetClipList())
     if not clips:
         return []
 
     current_id = current_item.GetMediaId()
-    indices = [i for i, c in enumerate(clips) if c.GetMediaId() == current_id]
-    if not indices:
-        return []
+    current_date_key = _clip_date_key(current_item)[0]  # datetime or datetime.max
 
-    idx = indices[0]
-    half = n_neighbours // 2
-    start = max(0, idx - half)
-    end = min(len(clips), idx + half + 1)
-    neighbours = [c for i, c in enumerate(clips[start:end], start) if i != idx]
+    # All clips from the same calendar day, excluding the current clip.
+    neighbours = [
+        c for c in clips
+        if c.GetMediaId() != current_id
+        and _clip_date_key(c)[0].date() == current_date_key.date()
+    ]
 
     current_kws = {k.lower() for k in get_keywords(current_item)}
 
