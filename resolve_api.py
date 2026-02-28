@@ -259,23 +259,42 @@ def suggest_keywords(resolve: Any, n_neighbours: int = 10) -> list[str]:
 def _normalise_ai_keyword(text: str) -> str:
     """Apply keyword casing conventions to a VLM response.
 
-    llava capitalises every word by default (Title Case). The rule is:
-    - If ALL words are capitalised the model has just applied default Title
-      Case to a generic phrase → lowercase the whole thing.
-    - If only SOME words are capitalised those are genuine proper nouns
-      (e.g. 'Space Needle', 'Eiffel Tower') → keep their capitalisation,
-      lowercase the rest.
+    llava always capitalises the first word (sentence-start) and may or may
+    not capitalise subsequent words. Strategy:
+
+    - Identify proper-noun words as those capitalised at position > 0.
+    - Lowercase everything, then restore capitals only for those words.
+    - The first word gets its capital restored only if it is also a
+      proper noun (i.e. it appears capitalised at position > 0 somewhere,
+      or it is the only word and was capitalised — single-word proper nouns
+      are kept as-is because we cannot distinguish them from sentence-start).
     """
     words = text.strip().split()
     if not words:
         return text
 
-    capitalised = [w[0].isupper() for w in words if w]
-    if all(capitalised):
+    if len(words) == 1:
+        # Single word: keep as-is (can't distinguish proper noun from sentence-start).
+        return words[0]
+
+    first_is_cap = words[0][0].isupper()
+    rest_caps = [w for w in words[1:] if w and w[0].isupper()]
+
+    if first_is_cap and not rest_caps:
+        # Only the first word is capitalised → pure sentence-start, all generic.
         return text.lower()
 
-    # Mixed: keep capitalised words as proper nouns, lowercase the rest.
-    return " ".join(w if w[0].isupper() else w.lower() for w in words)
+    if first_is_cap and len(rest_caps) == len(words) - 1:
+        # Every word is capitalised → Title Case applied uniformly, all generic.
+        return text.lower()
+
+    # Some words after position 0 are capitalised while others aren't →
+    # those are genuine proper nouns; lowercase everything else.
+    proper = {w.lower() for w in rest_caps}
+    return " ".join(
+        (w[0].upper() + w[1:].lower()) if w.lower() in proper else w.lower()
+        for w in words
+    )
 
 
 def ai_suggest_keyword(

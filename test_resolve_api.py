@@ -234,22 +234,26 @@ class TestSuggestKeywords(unittest.TestCase):
 
 
 class TestNormaliseAiKeyword(unittest.TestCase):
-    def test_all_caps_generic_lowercased(self):
-        # All words capitalised → llava default Title Case → lowercase
-        self.assertEqual(resolve_api._normalise_ai_keyword("Staircase"), "staircase")
+    def test_sentence_start_capital_lowercased(self):
+        # First word capital is sentence-start, not a proper noun → lowercase
+        self.assertEqual(resolve_api._normalise_ai_keyword("Street scene"), "street scene")
+        self.assertEqual(resolve_api._normalise_ai_keyword("Narrow alleyway"), "narrow alleyway")
+        self.assertEqual(resolve_api._normalise_ai_keyword("Outdoor seating"), "outdoor seating")
+        self.assertEqual(resolve_api._normalise_ai_keyword("Wedding photographer"), "wedding photographer")
+
+    def test_all_title_case_generic_lowercased(self):
         self.assertEqual(resolve_api._normalise_ai_keyword("Model Train Set"), "model train set")
         self.assertEqual(resolve_api._normalise_ai_keyword("Ski Lift"), "ski lift")
 
-    def test_all_caps_proper_noun_lowercased(self):
-        # llava Title-Cases proper nouns too, indistinguishable from generics
-        # when all words are caps — they come out lowercase and the user can
-        # correct if needed; Space Needle should still be caught by mixed rule
-        self.assertEqual(resolve_api._normalise_ai_keyword("Space Needle"), "space needle")
+    def test_mid_phrase_proper_noun_kept(self):
+        # Capitalised beyond position 0 → genuine proper noun
+        self.assertEqual(resolve_api._normalise_ai_keyword("couple near Eiffel Tower"), "couple near Eiffel Tower")
+        self.assertEqual(resolve_api._normalise_ai_keyword("view of Space Needle"), "view of Space Needle")
 
-    def test_mixed_proper_noun_kept(self):
-        # Model outputs mixed casing → proper noun detected
-        self.assertEqual(resolve_api._normalise_ai_keyword("Seattle waterfront"), "Seattle waterfront")
-        self.assertEqual(resolve_api._normalise_ai_keyword("couple in Eiffel Tower"), "couple in Eiffel Tower")
+    def test_single_word_kept_as_is(self):
+        # Can't distinguish proper noun from sentence-start for single words
+        self.assertEqual(resolve_api._normalise_ai_keyword("statue"), "statue")
+        self.assertEqual(resolve_api._normalise_ai_keyword("festival"), "festival")
 
     def test_already_lowercase_unchanged(self):
         self.assertEqual(resolve_api._normalise_ai_keyword("rolling hills"), "rolling hills")
