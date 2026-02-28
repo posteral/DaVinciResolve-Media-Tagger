@@ -148,6 +148,21 @@
     }
     .identity-card-split-btn:hover { border-color: #888; color: #ccc; }
 
+    .identity-card-dismiss-btn {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      background: none;
+      border: 1px solid #4a2a2a;
+      border-radius: 4px;
+      color: #885555;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      text-align: center;
+    }
+    .identity-card-dismiss-btn:hover { border-color: #7a3a3a; color: #bb7777; }
+
     .identity-card-faces {
       display: flex;
       flex-wrap: wrap;
@@ -1212,6 +1227,25 @@
       }
     }
 
+    // Add a dismiss (×) button to a card. Removes the card and hides Apply if none remain.
+    function _addDismissButton(card) {
+      const btn = document.createElement('button');
+      btn.className = 'identity-card-dismiss-btn';
+      btn.textContent = 'Dismiss';
+      btn.title = 'Discard this detection. Will not be added as a keyword or saved to the identity library.';
+      btn.addEventListener('click', () => {
+        card.remove();
+        const remaining = document.querySelectorAll('.identity-card');
+        if (remaining.length === 0) {
+          const apply = document.getElementById('identity-apply-btn');
+          const none  = document.getElementById('identity-none');
+          if (apply) { apply.style.display = 'none'; apply.disabled = false; apply.textContent = 'Apply identities to keywords'; }
+          if (none)  none.style.display = 'block';
+        }
+      });
+      card.appendChild(btn);
+    }
+
     // Build a single-detection identity card (used for ungrouped / split cards).
     function _buildSingleIdentityCard(det, datalistId, inheritedName) {
       const card = document.createElement('div');
@@ -1285,6 +1319,7 @@
       kwLabel.appendChild(document.createTextNode('Add as keyword'));
       card.appendChild(kwLabel);
 
+      _addDismissButton(card);
       return card;
     }
 
@@ -1433,6 +1468,7 @@
         kwLabel.appendChild(document.createTextNode('Add as keyword'));
         card.appendChild(kwLabel);
 
+        _addDismissButton(card);
         cards.appendChild(card);
       });
 
