@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-02-28
+
+### Fixed
+
+- Face detection now falls back to the CNN model when HOG finds no faces in a
+  frame. HOG is fast but misses angled, small, or low-resolution faces common
+  in proxy footage. CNN is more accurate at the cost of extra time per frame,
+  and is only invoked when HOG returns zero detections.
+
 ## [0.14.1] - 2026-02-28
 
 ### Changed
