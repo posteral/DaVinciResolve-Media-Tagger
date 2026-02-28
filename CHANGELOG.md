@@ -4,6 +4,42 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-02-28
+
+### Added
+
+- **Identity recognition for recurring people.** When a clip with a proxy is
+  loaded, the app samples 5 frames, detects faces, clusters repeated
+  appearances, and presents a **Detected Identities** panel to the right of
+  the keyword card.
+- Each detected person appears as a card with a face crop thumbnail, a status
+  badge (known / low confidence / unknown), an assign input pre-filled when a
+  match is found, and an "Add as keyword" toggle (on by default).
+- **Apply identities to keywords** button commits confirmed names to the local
+  identity registry and appends them to the clip's keyword list. Status badges
+  update to green "known" after applying.
+- Editing a name after applying re-enables the Apply button so corrections can
+  be committed immediately.
+- Local identity registry (`identity_registry.json`) stores face embeddings per
+  person (FIFO cap of 20). The registry grows over time — once a person is
+  named once, they are recognised automatically on future clips.
+- `identity_recognition.py`: face detection via `face_recognition` (lazy
+  import — app works without it), greedy intra-clip clustering, known /
+  low-confidence / unknown matching at 0.55 / 0.70 distance thresholds.
+- `identity_registry.py`: atomic JSON persistence with `.bak` copy, add /
+  update identities, face crop storage.
+- 4 new API routes: `POST /api/clip/detect-identities`,
+  `GET /api/clip/face-crop`, `GET /api/identities`,
+  `POST /api/identities/confirm`.
+- 101 unit tests (46 new across `test_identity_registry`,
+  `test_identity_recognition`, `test_identity_routes`).
+
+### Requirements
+
+```bash
+pip install face_recognition  # requires dlib
+```
+
 ## [0.11.1] - 2026-02-28
 
 ### Fixed
