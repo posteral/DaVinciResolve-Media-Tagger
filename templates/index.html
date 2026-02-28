@@ -27,6 +27,42 @@
       max-width: 1080px;
     }
 
+    /* Filmstrip + card side-by-side */
+    .clip-panel {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-shrink: 0;
+    }
+
+    #filmstrip {
+      display: none;
+      flex-direction: column;
+      gap: 4px;
+      width: 80px;
+      flex-shrink: 0;
+    }
+
+    .filmstrip-frame {
+      width: 80px;
+      height: 45px; /* 16:9 */
+      object-fit: cover;
+      border-radius: 4px;
+      background: #111;
+      display: block;
+      cursor: zoom-in;
+      transition: transform 0.15s, z-index 0s;
+      position: relative;
+      z-index: 0;
+    }
+
+    .filmstrip-frame:hover {
+      transform: scale(3.5) translateX(40%);
+      z-index: 100;
+      border-radius: 4px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.7);
+    }
+
     .card {
       background: #252525;
       border: 1px solid #333;
@@ -537,6 +573,8 @@
 </head>
 <body tabindex="-1">
   <div class="layout-row">
+  <div class="clip-panel">
+  <div id="filmstrip"></div>
   <div class="card">
     <h1>Clip Keywords</h1>
 
@@ -566,6 +604,7 @@
       <div id="ai-suggestion-container"></div>
     </div>
   </div>
+  </div><!-- /.clip-panel -->
 
   <!-- Identity panel -->
   <div id="identity-panel">
@@ -601,6 +640,9 @@
       const aiContainer = document.getElementById('ai-suggestion-container');
       if (aiSection) aiSection.style.display = 'none';
       if (aiContainer) aiContainer.innerHTML = '';
+      // Reset filmstrip
+      const filmstrip = document.getElementById('filmstrip');
+      if (filmstrip) { filmstrip.innerHTML = ''; filmstrip.style.display = 'none'; }
       // Reset identity panel
       _resetIdentityPanel();
       area.innerHTML = `
@@ -634,6 +676,7 @@
         loadSuggestions();
       }
       if (!data.no_proxy && data.file_path) {
+        loadFilmstrip(data.file_path);
         loadAiSuggestion(data.file_path, data.suggestions || []);
         loadIdentities(data.file_path);
       }
@@ -908,6 +951,32 @@
         container.appendChild(row);
       });
       section.style.display = 'block';
+    }
+
+    function loadFilmstrip(filePath) {
+      const strip = document.getElementById('filmstrip');
+      if (!strip || !filePath) return;
+      strip.style.display = 'flex';
+      const FRAME_COUNT = 5;
+      // Fire all 5 fetches concurrently; each appends its frame as it arrives.
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        const url = '/api/clip/filmstrip-frame?' + new URLSearchParams({ path: filePath, index: i });
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = 'width:80px;height:45px;background:#111;border-radius:4px;';
+        placeholder.dataset.index = i;
+        strip.appendChild(placeholder);
+        fetch(url).then(res => {
+          if (!res.ok) { placeholder.remove(); return; }
+          return res.blob();
+        }).then(blob => {
+          if (!blob) return;
+          const img = document.createElement('img');
+          img.className = 'filmstrip-frame';
+          img.alt = 'Frame ' + (i + 1);
+          img.src = URL.createObjectURL(blob);
+          placeholder.replaceWith(img);
+        }).catch(() => placeholder.remove());
+      }
     }
 
     async function loadAiSuggestion(filePath, proximitySuggestions = []) {
