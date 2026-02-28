@@ -376,7 +376,7 @@
     #modal-confirm:hover { background: #7e1a1a; }
   </style>
 </head>
-<body>
+<body tabindex="-1">
   <div class="card">
     <h1>Clip Keywords</h1>
 
@@ -460,6 +460,7 @@
       initKeywordInput();
       document.getElementById('prev-btn').style.display = 'inline-flex';
       document.getElementById('next-btn').style.display = 'inline-flex';
+      document.body.focus();
     }
 
     async function refresh() {
@@ -867,7 +868,6 @@
       // Ignore when focus is inside a text input or textarea.
       const tag = document.activeElement && document.activeElement.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      console.log('[shortcut]', e.key, 'activeElement:', tag);
 
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault();
