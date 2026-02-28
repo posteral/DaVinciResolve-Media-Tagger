@@ -151,6 +151,38 @@ def clip_thumbnail():
     return send_file(BytesIO(png), mimetype="image/png")
 
 
+@app.route("/api/clip/filmstrip-frame")
+def clip_filmstrip_frame():
+    """Return a single filmstrip frame by index (0-based) for the given proxy path.
+    Runs ffmpeg directly — no Resolve IPC needed."""
+    file_path = request.args.get("path", "").strip()
+    try:
+        index = int(request.args.get("index", "0"))
+    except ValueError:
+        return "", 400
+
+    if not file_path:
+        return "", 204
+
+    percentages = (0.1, 0.3, 0.5, 0.7, 0.9)
+    if index < 0 or index >= len(percentages):
+        return "", 400
+
+    try:
+        ffmpeg = resolve_api._ffmpeg_path()
+        ffprobe = resolve_api._ffprobe_path()
+    except FileNotFoundError:
+        return "", 204
+
+    duration = resolve_api._probe_duration(file_path, ffprobe)
+    seek = duration * percentages[index] if duration > 0 else 0.0
+    png = resolve_api._extract_frame(file_path, ffmpeg, seek)
+    if png is None:
+        return "", 204
+
+    return send_file(BytesIO(png), mimetype="image/png")
+
+
 @app.route("/api/clip/suggestions")
 def clip_suggestions():
     try:

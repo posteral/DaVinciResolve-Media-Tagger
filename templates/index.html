@@ -27,6 +27,73 @@
       max-width: 1080px;
     }
 
+    /* Filmstrip + card side-by-side */
+    .clip-panel {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-shrink: 0;
+    }
+
+    #filmstrip {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      width: 184px; /* 160px image + 12px sprocket gutter each side */
+      flex-shrink: 0;
+      background: #111;
+      border-radius: 6px;
+      padding: 6px 0;
+      /* Sprocket holes: repeating punched rectangles on left and right edges */
+      background-image:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0px,
+          transparent 6px,
+          #1a1a1a 6px,
+          #1a1a1a 10px,
+          transparent 10px,
+          transparent 24px
+        ),
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0px,
+          transparent 6px,
+          #1a1a1a 6px,
+          #1a1a1a 10px,
+          transparent 10px,
+          transparent 24px
+        );
+      background-position: 3px 10px, calc(100% - 3px) 10px;
+      background-size: 6px 24px, 6px 24px;
+      background-repeat: repeat-y, repeat-y;
+    }
+
+    .filmstrip-frame-wrap {
+      display: block;
+      margin: 3px 12px;
+      position: relative;
+      z-index: 0;
+    }
+
+    .filmstrip-frame {
+      width: 160px;
+      height: 90px; /* 16:9 */
+      object-fit: cover;
+      border-radius: 2px;
+      background: #222;
+      display: block;
+      cursor: zoom-in;
+      transition: transform 0.15s;
+    }
+
+    .filmstrip-frame-wrap:hover .filmstrip-frame {
+      transform: scale(2.5) translateX(-40%);
+      z-index: 100;
+      position: relative;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.8);
+    }
+
     .card {
       background: #252525;
       border: 1px solid #333;
@@ -537,6 +604,8 @@
 </head>
 <body tabindex="-1">
   <div class="layout-row">
+  <div class="clip-panel">
+  <div id="filmstrip"></div>
   <div class="card">
     <h1>Clip Keywords</h1>
 
@@ -566,6 +635,7 @@
       <div id="ai-suggestion-container"></div>
     </div>
   </div>
+  </div><!-- /.clip-panel -->
 
   <!-- Identity panel -->
   <div id="identity-panel">
@@ -601,6 +671,9 @@
       const aiContainer = document.getElementById('ai-suggestion-container');
       if (aiSection) aiSection.style.display = 'none';
       if (aiContainer) aiContainer.innerHTML = '';
+      // Reset filmstrip
+      const filmstrip = document.getElementById('filmstrip');
+      if (filmstrip) { filmstrip.innerHTML = ''; filmstrip.style.display = 'none'; }
       // Reset identity panel
       _resetIdentityPanel();
       area.innerHTML = `
@@ -634,6 +707,7 @@
         loadSuggestions();
       }
       if (!data.no_proxy && data.file_path) {
+        loadFilmstrip(data.file_path);
         loadAiSuggestion(data.file_path, data.suggestions || []);
         loadIdentities(data.file_path);
       }
@@ -908,6 +982,34 @@
         container.appendChild(row);
       });
       section.style.display = 'block';
+    }
+
+    function loadFilmstrip(filePath) {
+      const strip = document.getElementById('filmstrip');
+      if (!strip || !filePath) return;
+      strip.style.display = 'flex';
+      const FRAME_COUNT = 5;
+      // Fire all 5 fetches concurrently; each appends its frame as it arrives.
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        const url = '/api/clip/filmstrip-frame?' + new URLSearchParams({ path: filePath, index: i });
+        const wrap = document.createElement('div');
+        wrap.className = 'filmstrip-frame-wrap';
+        const placeholder = document.createElement('div');
+        placeholder.style.cssText = 'width:160px;height:90px;background:#222;border-radius:2px;';
+        wrap.appendChild(placeholder);
+        strip.appendChild(wrap);
+        fetch(url).then(res => {
+          if (!res.ok) { wrap.remove(); return; }
+          return res.blob();
+        }).then(blob => {
+          if (!blob) return;
+          const img = document.createElement('img');
+          img.className = 'filmstrip-frame';
+          img.alt = 'Frame ' + (i + 1);
+          img.src = URL.createObjectURL(blob);
+          placeholder.replaceWith(img);
+        }).catch(() => wrap.remove());
+      }
     }
 
     async function loadAiSuggestion(filePath, proximitySuggestions = []) {
