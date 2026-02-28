@@ -92,14 +92,15 @@ def clip_ai_suggestion():
                 or item.GetClipProperty("File Path")
                 or ""
             )
+            existing_keywords = resolve_api.get_keywords(item)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
     if not file_path:
         return jsonify({"suggestion": None})
 
-    suggestion = resolve_api.ai_suggest_keyword(file_path)
-    print(f"[ai-suggestion] file={file_path!r} suggestion={suggestion!r}")
+    suggestion = resolve_api.ai_suggest_keyword(file_path, existing_keywords=existing_keywords)
+    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} suggestion={suggestion!r}")
     return jsonify({"suggestion": suggestion})
 
 

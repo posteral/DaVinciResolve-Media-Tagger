@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -271,6 +272,14 @@ class TestAiSuggestKeyword(unittest.TestCase):
              patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("mountain landscape")):
             result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
         self.assertEqual(result, "mountain landscape")
+
+    def test_existing_keywords_included_in_prompt(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("waterfall")) as mock_open:
+            resolve_api.ai_suggest_keyword("/fake/clip.mov", existing_keywords=["sunset", "beach"])
+        called_payload = json.loads(mock_open.call_args[0][0].data)
+        self.assertIn("sunset", called_payload["prompt"])
+        self.assertIn("beach", called_payload["prompt"])
 
     def test_returns_none_when_ollama_unreachable(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \

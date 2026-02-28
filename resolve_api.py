@@ -278,7 +278,11 @@ def _normalise_ai_keyword(text: str) -> str:
     return " ".join(w if w[0].isupper() else w.lower() for w in words)
 
 
-def ai_suggest_keyword(file_path: str, model: str = "llava") -> str | None:
+def ai_suggest_keyword(
+    file_path: str,
+    model: str = "llava",
+    existing_keywords: list[str] | None = None,
+) -> str | None:
     """Return a single AI-generated keyword for a clip by sending its thumbnail
     to a locally running Ollama VLM. Returns None if Ollama is unreachable."""
     import base64
@@ -288,9 +292,18 @@ def ai_suggest_keyword(file_path: str, model: str = "llava") -> str | None:
     if not png:
         return None
 
+    if existing_keywords:
+        kw_context = (
+            f"This clip already has these keywords: {', '.join(existing_keywords)}. "
+            "Suggest one additional keyword not already in that list. "
+        )
+    else:
+        kw_context = ""
+
     payload = json.dumps({
         "model": model,
         "prompt": (
+            f"{kw_context}"
             "Describe the main subject of this image as a media archive keyword phrase. "
             "Use 1-4 words. "
             "If the subject is a specific named place, landmark, or person use Title Case. "
