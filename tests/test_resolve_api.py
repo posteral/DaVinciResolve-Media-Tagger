@@ -414,6 +414,17 @@ class TestAiSuggestKeywords(unittest.TestCase):
         self.assertIn("sunset", called_payload["prompt"])
         self.assertIn("beach", called_payload["prompt"])
 
+    def test_catalog_keywords_included_in_prompt(self):
+        with patch("resolve_api.frames_from_file_path", return_value=[b"F1"]), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("waterfall, mist, rocks")) as mock_open:
+            resolve_api.ai_suggest_keywords(
+                "/fake/clip.mov",
+                catalog=["golden hour", "street photography", "Eiffel Tower"],
+            )
+        called_payload = json.loads(mock_open.call_args[0][0].data)
+        self.assertIn("golden hour", called_payload["prompt"])
+        self.assertIn("Eiffel Tower", called_payload["prompt"])
+
     def test_proximity_suggestions_included_in_prompt(self):
         with patch("resolve_api.frames_from_file_path", return_value=[b"F1"]), \
              patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("waterfall, mist, rocks")) as mock_open:

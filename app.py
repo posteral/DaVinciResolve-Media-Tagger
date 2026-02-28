@@ -196,33 +196,47 @@ def clip_suggestions():
     return jsonify({"suggestions": suggestions})
 
 
-@app.route("/api/clip/ai-suggestion")
+@app.route("/api/clip/ai-suggestion", methods=["GET", "POST"])
 def clip_ai_suggestion():
-    # If the caller already knows the file path, use it directly (no IPC needed).
-    file_path = request.args.get("path", "").strip()
-    existing_keywords: list[str] = []
-
-    if not file_path:
-        try:
-            with _resolve_lock:
-                resolve = _get_resolve()
-                item = resolve_api.get_selected_media_pool_item(resolve)
-                if item is None:
-                    return jsonify({"suggestions": []})
-                file_path = item.GetClipProperty("Proxy Media Path") or ""
-                existing_keywords = resolve_api.get_keywords(item)
-        except Exception as exc:
-            return jsonify({"error": str(exc)}), 500
+    # Accept both GET (legacy, no catalog) and POST (with JSON body including catalog).
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        file_path = body.get("path", "").strip()
+        existing_keywords = body.get("keywords", [])
+        proximity_suggestions = body.get("suggestions", [])
+        catalog = body.get("catalog", [])
+        if not file_path:
+            try:
+                with _resolve_lock:
+                    resolve = _get_resolve()
+                    item = resolve_api.get_selected_media_pool_item(resolve)
+                    if item is None:
+                        return jsonify({"suggestions": []})
+                    file_path = item.GetClipProperty("Proxy Media Path") or ""
+                    existing_keywords = resolve_api.get_keywords(item)
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
     else:
-        # Keywords and suggestions were already fetched by the navigate/clip route;
-        # caller passes them as comma-separated query params so we don't need the lock.
-        kw_param = request.args.get("keywords", "").strip()
-        existing_keywords = [k.strip() for k in kw_param.split(",") if k.strip()]
-
-    proximity_suggestions: list[str] = []
-    sug_param = request.args.get("suggestions", "").strip()
-    if sug_param:
-        proximity_suggestions = [k.strip() for k in sug_param.split(",") if k.strip()]
+        file_path = request.args.get("path", "").strip()
+        existing_keywords = []
+        proximity_suggestions = []
+        catalog = []
+        if not file_path:
+            try:
+                with _resolve_lock:
+                    resolve = _get_resolve()
+                    item = resolve_api.get_selected_media_pool_item(resolve)
+                    if item is None:
+                        return jsonify({"suggestions": []})
+                    file_path = item.GetClipProperty("Proxy Media Path") or ""
+                    existing_keywords = resolve_api.get_keywords(item)
+            except Exception as exc:
+                return jsonify({"error": str(exc)}), 500
+        else:
+            kw_param = request.args.get("keywords", "").strip()
+            existing_keywords = [k.strip() for k in kw_param.split(",") if k.strip()]
+            sug_param = request.args.get("suggestions", "").strip()
+            proximity_suggestions = [k.strip() for k in sug_param.split(",") if k.strip()]
 
     if not file_path:
         return jsonify({"suggestions": []})
@@ -231,8 +245,9 @@ def clip_ai_suggestion():
         file_path,
         existing_keywords=existing_keywords,
         proximity_suggestions=proximity_suggestions,
+        catalog=catalog,
     )
-    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} proximity={proximity_suggestions!r} suggestions={suggestions!r}")
+    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} proximity={proximity_suggestions!r} catalog_size={len(catalog)} suggestions={suggestions!r}")
     return jsonify({"suggestions": suggestions})
 
 

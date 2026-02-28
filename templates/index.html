@@ -1037,14 +1037,15 @@
       if (aiSection) aiSection.style.display = 'block';
       if (aiSpinner) aiSpinner.style.display = 'inline-block';
       try {
-        let url = '/api/clip/ai-suggestion';
-        if (filePath) {
-          const params = new URLSearchParams({ path: filePath });
-          if (currentKeywords.length) params.set('keywords', currentKeywords.join(','));
-          if (proximitySuggestions.length) params.set('suggestions', proximitySuggestions.join(','));
-          url += '?' + params.toString();
-        }
-        const res = await fetch(url);
+        const body = { path: filePath };
+        if (currentKeywords.length) body.keywords = currentKeywords;
+        if (proximitySuggestions.length) body.suggestions = proximitySuggestions;
+        if (_catalog && _catalog.length) body.catalog = _catalog;
+        const res = await fetch('/api/clip/ai-suggestion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
         if (!res.ok) return;
         const data = await res.json();
         renderAiSuggestions(data.suggestions);

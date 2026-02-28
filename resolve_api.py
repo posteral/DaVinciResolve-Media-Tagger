@@ -442,6 +442,7 @@ def ai_suggest_keywords(
     model: str = "llava",
     existing_keywords: list[str] | None = None,
     proximity_suggestions: list[str] | None = None,
+    catalog: list[str] | None = None,
     n: int = 5,
 ) -> list[str]:
     """Return up to n AI-generated keyword suggestions for a clip by sending
@@ -474,11 +475,19 @@ def ai_suggest_keywords(
     else:
         kw_context = f"Suggest {n} keywords for this clip. "
 
+    catalog_context = ""
+    if catalog:
+        catalog_context = (
+            f"Prefer exact wording from this existing keyword catalog when relevant: "
+            f"{', '.join(catalog)}. "
+        )
+
     payload = json.dumps({
         "model": model,
         "prompt": (
             f"{path_context}"
             f"{kw_context}"
+            f"{catalog_context}"
             "Each keyword is a phrase of 1-4 words describing a distinct aspect of the clip. "
             "If a subject is a specific named place, landmark, or person use Title Case. "
             "If a subject is a generic object, animal, activity, or natural feature use lowercase. "
