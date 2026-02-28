@@ -178,8 +178,15 @@ class TestSuggestKeywords(unittest.TestCase):
         resolve.GetProjectManager.return_value = project_manager
         return resolve
 
-    def test_returns_top_3_by_frequency(self):
-        # 5 neighbours each with "alpha", 3 with "beta", 1 with "gamma" and "delta"
+    def test_returns_top_3_by_proximity_score(self):
+        # Layout (sorted by date, cur at index 2):
+        #   n1(d=2): alpha, beta   weight=0.5
+        #   n2(d=1): alpha, beta   weight=1.0
+        #   cur(d=0): []
+        #   n3(d=1): alpha, beta, gamma  weight=1.0
+        #   n4(d=2): alpha, delta  weight=0.5
+        #   n5(d=3): alpha         weight=0.333
+        # Scores: alpha=3.333, beta=2.5, gamma=1.0, delta=0.5
         clips = [
             self._make_clip("n1", ["alpha", "beta"], "01/01/2024 10:00:00"),
             self._make_clip("n2", ["alpha", "beta"], "01/01/2024 11:00:00"),
@@ -190,10 +197,27 @@ class TestSuggestKeywords(unittest.TestCase):
         ]
         resolve = self._make_resolve(clips, "cur")
         suggestions = resolve_api.suggest_keywords(resolve)[0]
-        self.assertEqual(suggestions[0], "alpha")  # freq=5
-        self.assertEqual(suggestions[1], "beta")   # freq=3
-        self.assertIn(suggestions[2], ["gamma", "delta"])  # freq=1 tie
+        self.assertEqual(suggestions[0], "alpha")  # score=3.333
+        self.assertEqual(suggestions[1], "beta")   # score=2.5
+        self.assertEqual(suggestions[2], "gamma")  # score=1.0 > delta 0.5
         self.assertEqual(len(suggestions), 3)
+
+    def test_proximity_prefers_close_neighbours(self):
+        # "near" appears only on adjacent clips; "far" appears on many but distant ones.
+        # near: clips at distance 1 each → score = 1.0 + 1.0 = 2.0
+        # far:  clips at distance 4 each → score = 0.25 + 0.25 = 0.5
+        clips = [
+            self._make_clip("f1", ["far"], "01/01/2024 07:00:00"),
+            self._make_clip("f2", ["far"], "01/01/2024 08:00:00"),
+            self._make_clip("f3", ["far"], "01/01/2024 09:00:00"),
+            self._make_clip("f4", ["far"], "01/01/2024 10:00:00"),
+            self._make_clip("near1", ["near"], "01/01/2024 11:00:00"),
+            self._make_clip("cur",   [],       "01/01/2024 12:00:00"),
+            self._make_clip("near2", ["near"], "01/01/2024 13:00:00"),
+        ]
+        resolve = self._make_resolve(clips, "cur")
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
+        self.assertEqual(suggestions[0], "near")
 
     def test_excludes_current_clip_keywords(self):
         clips = [

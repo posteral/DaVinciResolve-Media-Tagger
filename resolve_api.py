@@ -261,9 +261,12 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
 
 
 def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str], dict]:
-    """Return up to 3 keyword suggestions for the current clip based on
-    keywords used by all other clips recorded on the same calendar day
-    in the same folder. Also returns a debug dict.
+    """Return up to 3 keyword suggestions for the current clip.
+
+    Keywords are scored by proximity: each neighbouring clip at sequential
+    distance d contributes 1/d to every keyword it carries.  Only clips
+    recorded on the same calendar day in the same folder are considered.
+    Keywords already on the current clip are excluded.
 
     If current_item is provided it is used directly, avoiding a redundant
     get_selected_media_pool_item() IPC call."""
@@ -299,10 +302,15 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     current_date = current_date_key.date()
     current_kws = {k.lower() for k in keywords_by_id.get(current_id, [])}
 
-    counts: dict[str, int] = {}
+    # Find the index of the current clip in the sorted list.
+    current_index = next(
+        (i for i, c in enumerate(clips) if c.GetMediaId() == current_id), None
+    )
+
+    scores: dict[str, float] = {}
     first_seen: dict[str, str] = {}
     neighbour_count = 0
-    for c in clips:
+    for i, c in enumerate(clips):
         cid = c.GetMediaId()
         if cid == current_id:
             continue
@@ -310,14 +318,19 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
         if d == datetime.max or d.date() != current_date:
             continue
         neighbour_count += 1
+        # Weight by inverse sequential distance when position is known.
+        if current_index is not None:
+            weight = 1.0 / abs(i - current_index)
+        else:
+            weight = 1.0
         for kw in keywords_by_id.get(cid, []):
             key = kw.lower()
             if key not in current_kws:
-                counts[key] = counts.get(key, 0) + 1
+                scores[key] = scores.get(key, 0.0) + weight
                 if key not in first_seen:
                     first_seen[key] = kw
 
-    ranked = sorted(counts.keys(), key=lambda k: -counts[k])
+    ranked = sorted(scores.keys(), key=lambda k: -scores[k])
     suggestions = [first_seen[k] for k in ranked[:3]]
 
     debug = {

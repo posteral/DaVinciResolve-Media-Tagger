@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-02-28
+
+### Changed
+
+- Proximity keyword suggestions now use **inverse-distance weighting** instead
+  of raw frequency. Each neighbouring clip contributes `1 / distance` to the
+  score of every keyword it carries, where distance is the sequential position
+  gap in the folder (sorted by Date Created). A clip immediately adjacent scores
+  1.0; two away scores 0.5; three away 0.33, etc. Keywords that appear both
+  before and after the current clip now rank higher than keywords that appear
+  many times only at the far end of the shoot day.
+
 ## [0.13.0] - 2026-02-28
 
 ### Changed
