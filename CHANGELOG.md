@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-02-28
+
+### Changed
+
+- AI keyword suggestion prompt now includes the clip's file path as context.
+  Everything preceding and including `ProxyMedia/` is stripped so only the
+  meaningful portion (shoot folder, date, filename) is sent to the model.
+  The model can now use shoot date, location hints, and folder structure
+  alongside the visual frames to ground its suggestions.
+
 ## [0.12.2] - 2026-02-28
 
 ### Fixed
