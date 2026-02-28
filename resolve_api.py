@@ -113,23 +113,34 @@ def _normalize_keywords(raw: Any) -> list[str]:
     return keywords
 
 
+def _dedup_keywords(keywords: list[str]) -> list[str]:
+    """Remove duplicates case-insensitively, preserving first occurrence."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for kw in keywords:
+        if kw.lower() not in seen:
+            seen.add(kw.lower())
+            result.append(kw)
+    return result
+
+
 def get_keywords(media_pool_item: Any) -> list[str]:
     metadata = media_pool_item.GetMetadata()
     if isinstance(metadata, dict):
         for key, value in metadata.items():
             if "keyword" in str(key).lower():
-                keywords = _normalize_keywords(value)
+                keywords = _dedup_keywords(_normalize_keywords(value))
                 if keywords:
                     return sorted(keywords, key=str.casefold)
 
     for key in ("Keywords", "keywords", "Keyword", "keyword"):
         value = media_pool_item.GetMetadata(key)
-        keywords = _normalize_keywords(value)
+        keywords = _dedup_keywords(_normalize_keywords(value))
         if keywords:
             return sorted(keywords, key=str.casefold)
 
     clip_property = media_pool_item.GetClipProperty("Keywords")
-    return sorted(_normalize_keywords(clip_property), key=str.casefold)
+    return sorted(_dedup_keywords(_normalize_keywords(clip_property)), key=str.casefold)
 
 
 def set_keywords(media_pool_item: Any, keywords: list[str]) -> bool:

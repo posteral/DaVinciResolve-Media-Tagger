@@ -59,6 +59,14 @@ class TestGetKeywords(unittest.TestCase):
         item.GetClipProperty.return_value = ""
         self.assertEqual(resolve_api.get_keywords(item), [])
 
+    def test_deduplicates_keywords(self):
+        item = self._make_item({"Keywords": "Ohio, Ohio, Toledo, Toledo"})
+        self.assertEqual(resolve_api.get_keywords(item), ["Ohio", "Toledo"])
+
+    def test_deduplicates_case_insensitively(self):
+        item = self._make_item({"Keywords": "ohio, Ohio"})
+        self.assertEqual(resolve_api.get_keywords(item), ["ohio"])
+
 
 class TestSetKeywords(unittest.TestCase):
     def test_returns_true_on_success(self):
