@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-02-28
+
+### Fixed
+
+- Proximity suggestions now include keywords from clips on different calendar
+  days. The same-day boundary filter has been removed; relevance is determined
+  purely by inverse sequential distance (1/d).
+- Proximity scoring is now capped to a ±50 clip window. Previously, keywords
+  shared across hundreds of distant clips could accumulate enough 1/d weight to
+  drown out unique keywords on immediately-adjacent clips.
+- AI keyword suggestions await the project catalog before sending the request,
+  so `catalog_size=0` no longer occurs when navigating quickly between clips.
+- AI suggestion post-processing now rejects candidates longer than 40 characters
+  or more than 5 words, filtering out sentence fragments that some VLM models
+  return despite prompt instructions.
+- AI prompt reworded to be more explicit about the 1-4 word constraint and
+  includes an example format line.
+
 ## [0.17.2] - 2026-02-28
 
 ### Changed
