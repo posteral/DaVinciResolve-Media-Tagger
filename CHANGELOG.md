@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-02-28
+
+### Fixed
+
+- Apply button stayed disabled when navigating to a new clip — `_resetIdentityPanel()`
+  now resets `disabled`, `textContent`, and `onclick` on every clip load.
+- `onclick` attribute on a `<button disabled>` fires in all browsers; replaced with
+  `apply.onclick` assigned in `renderIdentityCards` and a `disabled` guard at the
+  top of `applyIdentities()`.
+- `confirm_identities` returned duplicate entries in `keywords_added` when the same
+  person was detected in multiple face clusters — now deduplicates case-insensitively.
+
 ## [0.12.1] - 2026-02-28
 
 ### Changed
