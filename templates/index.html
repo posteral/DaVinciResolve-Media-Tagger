@@ -550,6 +550,7 @@
           return;
         }
 
+        hideSave();
         savedMsg.style.display = 'inline';
         setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
       } catch (err) {
