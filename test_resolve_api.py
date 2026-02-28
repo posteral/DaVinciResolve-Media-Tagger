@@ -181,7 +181,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("n5", ["alpha"], "01/01/2024 15:00:00"),
         ]
         resolve = self._make_resolve(clips, "cur")
-        suggestions = resolve_api.suggest_keywords(resolve)
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
         self.assertEqual(suggestions[0], "alpha")  # freq=5
         self.assertEqual(suggestions[1], "beta")   # freq=3
         self.assertIn(suggestions[2], ["gamma", "delta"])  # freq=1 tie
@@ -195,7 +195,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("n3", ["alpha", "existing"], "01/01/2024 13:00:00"),
         ]
         resolve = self._make_resolve(clips, "cur")
-        suggestions = resolve_api.suggest_keywords(resolve)
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
         self.assertNotIn("existing", [s.lower() for s in suggestions])
         self.assertIn("alpha", suggestions)
 
@@ -206,7 +206,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("n2", [], "01/01/2024 13:00:00"),
         ]
         resolve = self._make_resolve(clips, "cur")
-        self.assertEqual(resolve_api.suggest_keywords(resolve), [])
+        self.assertEqual(resolve_api.suggest_keywords(resolve)[0], [])
 
     def test_returns_empty_when_no_current_item(self):
         resolve = MagicMock()
@@ -218,7 +218,7 @@ class TestSuggestKeywords(unittest.TestCase):
         project.GetCurrentTimeline.return_value = None
         project_manager.GetCurrentProject.return_value = project
         resolve.GetProjectManager.return_value = project_manager
-        self.assertEqual(resolve_api.suggest_keywords(resolve), [])
+        self.assertEqual(resolve_api.suggest_keywords(resolve)[0], [])
 
     def test_fewer_than_3_candidates_returns_what_exists(self):
         clips = [
@@ -227,7 +227,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("n2", ["beta"], "01/01/2024 13:00:00"),
         ]
         resolve = self._make_resolve(clips, "cur")
-        suggestions = resolve_api.suggest_keywords(resolve)
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
         self.assertEqual(len(suggestions), 2)
         self.assertIn("alpha", suggestions)
         self.assertIn("beta", suggestions)
@@ -241,7 +241,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("undated2", ["also_wrong"], ""),
         ]
         resolve = self._make_resolve(clips, "cur")
-        self.assertEqual(resolve_api.suggest_keywords(resolve), [])
+        self.assertEqual(resolve_api.suggest_keywords(resolve)[0], [])
 
     def test_excludes_clips_from_different_days(self):
         clips = [
@@ -250,7 +250,7 @@ class TestSuggestKeywords(unittest.TestCase):
             self._make_clip("sameday",   ["same_day"],   "01/02/2024 14:00:00"),
         ]
         resolve = self._make_resolve(clips, "cur")
-        suggestions = resolve_api.suggest_keywords(resolve)
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
         self.assertIn("same_day", suggestions)
         self.assertNotIn("other_day", suggestions)
 

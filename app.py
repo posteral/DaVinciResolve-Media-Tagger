@@ -72,10 +72,11 @@ def clip_suggestions():
     try:
         with _resolve_lock:
             resolve = _get_resolve()
-            suggestions = resolve_api.suggest_keywords(resolve)
+            suggestions, debug = resolve_api.suggest_keywords(resolve)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+    print(f"[suggestions] {debug}")
     return jsonify({"suggestions": suggestions})
 
 

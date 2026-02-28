@@ -204,42 +204,42 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     return new_item
 
 
-def suggest_keywords(resolve: Any) -> list[str]:
+def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
     """Return up to 3 keyword suggestions for the current clip based on
     keywords used by all other clips recorded on the same calendar day
-    in the same folder."""
+    in the same folder. Also returns a debug dict."""
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
-        return []
+        return [], {"reason": "no project manager"}
     project = project_manager.GetCurrentProject()
     if project is None:
-        return []
+        return [], {"reason": "no project"}
     media_pool = project.GetMediaPool()
     if media_pool is None:
-        return []
+        return [], {"reason": "no media pool"}
 
     current_item = get_selected_media_pool_item(resolve)
     if current_item is None:
-        return []
+        return [], {"reason": "no current item"}
 
     folder = media_pool.GetCurrentFolder()
     if folder is None:
-        return []
+        return [], {"reason": "no folder"}
 
     clips = _as_sequence(folder.GetClipList())
     if not clips:
-        return []
+        return [], {"reason": "no clips in folder"}
 
     current_id = current_item.GetMediaId()
     current_date_key = _clip_date_key(current_item)[0]  # datetime or datetime.max
 
-    # If the current clip has no parseable date, fall back to an empty list
-    # rather than matching all other undated clips via datetime.max.
     if current_date_key == datetime.max:
-        return []
+        return [], {"reason": "current clip has no parseable date",
+                    "clip": current_item.GetName()}
 
-    # All clips from the same calendar day, excluding the current clip and
-    # any clips whose date could not be parsed.
+    neighbour_dates = {c.GetName(): str(_clip_date_key(c)[0].date())
+                       for c in clips if c.GetMediaId() != current_id}
+
     neighbours = [
         c for c in clips
         if c.GetMediaId() != current_id
@@ -260,7 +260,16 @@ def suggest_keywords(resolve: Any) -> list[str]:
                     first_seen[key] = kw
 
     ranked = sorted(counts.keys(), key=lambda k: -counts[k])
-    return [first_seen[k] for k in ranked[:3]]
+    suggestions = [first_seen[k] for k in ranked[:3]]
+
+    debug = {
+        "clip": current_item.GetName(),
+        "date": str(current_date_key.date()),
+        "total_clips_in_folder": len(clips),
+        "same_day_neighbours": [c.GetName() for c in neighbours],
+        "all_clip_dates": neighbour_dates,
+    }
+    return suggestions, debug
 
 
 def _normalise_ai_keyword(
