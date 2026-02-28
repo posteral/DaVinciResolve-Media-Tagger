@@ -182,18 +182,26 @@ def navigate_clip():
 
     try:
         with _resolve_lock:
+            import time as _time
+            t0 = _time.monotonic()
             resolve = _get_resolve()
+            t1 = _time.monotonic()
             item = resolve_api.navigate_clip(resolve, direction)
+            t2 = _time.monotonic()
             if item is None:
                 return jsonify({"error": "No more clips"}), 404
             name = item.GetName() or "<unnamed clip>"
+            t3 = _time.monotonic()
             keywords = resolve_api.get_keywords(item)
+            t4 = _time.monotonic()
             keywords_stored = resolve_api._normalize_keywords(
                 item.GetMetadata("Keywords") or item.GetClipProperty("Keywords") or ""
             )
+            t5 = _time.monotonic()
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
+    print(f"[navigate timing] get_resolve={t1-t0:.2f}s navigate={t2-t1:.2f}s get_name={t3-t2:.2f}s get_keywords={t4-t3:.2f}s get_stored={t5-t4:.2f}s total={t5-t0:.2f}s")
     return jsonify({
         "clip": name,
         "keywords": keywords,

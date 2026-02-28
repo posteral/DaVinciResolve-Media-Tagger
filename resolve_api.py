@@ -189,6 +189,7 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     """Select the next (+1) or previous (-1) clip in the current Media Pool
     folder, ordered by Date Created (matching Resolve's default UI sort).
     Returns the newly selected MediaPoolItem, or None if at boundary."""
+    import time as _time
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         return None
@@ -199,15 +200,19 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     if media_pool is None:
         return None
 
+    ta = _time.monotonic()
     current_item = get_selected_media_pool_item(resolve)
+    tb = _time.monotonic()
     if current_item is None:
         return None
 
     folder = media_pool.GetCurrentFolder()
+    tc = _time.monotonic()
     if folder is None:
         return None
 
     clips = _get_sorted_clips(folder)
+    td = _time.monotonic()
     if not clips:
         return None
 
@@ -222,6 +227,8 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
 
     new_item = clips[new_index]
     media_pool.SetSelectedClip(new_item)
+    te = _time.monotonic()
+    print(f"[navigate_clip] get_selected={tb-ta:.2f}s get_folder={tc-tb:.2f}s get_sorted_clips={td-tc:.2f}s set_selected={te-td:.2f}s")
     return new_item
 
 
