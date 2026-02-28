@@ -286,6 +286,9 @@
       overflow-y: auto;
       z-index: 50;
       display: none;
+      list-style: none;
+      padding: 0;
+      margin: 0;
     }
 
     .autocomplete-list.open { display: block; }
@@ -790,9 +793,8 @@
       }
 
       function renderList(matches) {
-        activeIndex = -1;
         list.innerHTML = '';
-        if (matches.length === 0) { list.classList.remove('open'); return; }
+        if (matches.length === 0) { list.classList.remove('open'); activeIndex = -1; return; }
         matches.forEach((kw, i) => {
           const li = document.createElement('li');
           li.className = 'autocomplete-item';
@@ -804,6 +806,8 @@
           });
           list.appendChild(li);
         });
+        activeIndex = 0;
+        list.querySelectorAll('.autocomplete-item')[0].classList.add('active');
         list.classList.add('open');
       }
 
