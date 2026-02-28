@@ -316,38 +316,39 @@ def _normalise_ai_keyword(
     return " ".join(known_words.get(w, w) for w in result.split())
 
 
-def ai_suggest_keyword(
+def ai_suggest_keywords(
     file_path: str,
     model: str = "llava",
     existing_keywords: list[str] | None = None,
-) -> str | None:
-    """Return a single AI-generated keyword for a clip by sending its thumbnail
-    to a locally running Ollama VLM. Returns None if Ollama is unreachable."""
+    n: int = 3,
+) -> list[str]:
+    """Return up to n AI-generated keyword suggestions for a clip by sending
+    its thumbnail to a locally running Ollama VLM. Returns [] if Ollama is
+    unreachable or no thumbnail is available."""
     import base64
     import json
 
     png = thumbnail_from_file_path(file_path)
     if not png:
-        return None
+        return []
 
     if existing_keywords:
         kw_context = (
             f"This clip already has these keywords: {', '.join(existing_keywords)}. "
-            "Suggest one additional keyword not already in that list. "
+            f"Suggest {n} additional keywords not already in that list. "
         )
     else:
-        kw_context = ""
+        kw_context = f"Suggest {n} keywords for this image. "
 
     payload = json.dumps({
         "model": model,
         "prompt": (
             f"{kw_context}"
-            "Describe the main subject of this image as a media archive keyword phrase. "
-            "Use 1-4 words. "
-            "If the subject is a specific named place, landmark, or person use Title Case. "
-            "If the subject is a generic object, animal, activity, or natural feature use lowercase. "
+            "Each keyword is a phrase of 1-4 words describing a distinct aspect of the image. "
+            "If a subject is a specific named place, landmark, or person use Title Case. "
+            "If a subject is a generic object, animal, activity, or natural feature use lowercase. "
             "Examples: 'sunset', 'rolling hills', 'prayer flags', 'Eiffel Tower', 'Trevi Fountain'. "
-            "Reply with only the keyword phrase, no punctuation, no explanation."
+            f"Reply with exactly {n} keyword phrases separated by commas, nothing else."
         ),
         "images": [base64.b64encode(png).decode()],
         "stream": False,
@@ -364,14 +365,27 @@ def ai_suggest_keyword(
             result = json.loads(resp.read())
         text = result.get("response", "").strip()
         if not text:
-            return None
-        normalised = _normalise_ai_keyword(text, existing_keywords)
+            return []
+
         existing_lower = {kw.lower() for kw in (existing_keywords or [])}
-        if normalised.lower() in existing_lower:
-            return None
-        return normalised
+        suggestions: list[str] = []
+        seen: set[str] = set()
+        for part in text.split(","):
+            kw = part.strip().strip(".")
+            if not kw:
+                continue
+            normalised = _normalise_ai_keyword(kw, existing_keywords)
+            lower = normalised.lower()
+            if lower in existing_lower or lower in seen:
+                continue
+            seen.add(lower)
+            suggestions.append(normalised)
+            if len(suggestions) == n:
+                break
+
+        return suggestions
     except Exception:
-        return None
+        return []
 
 
 def _ffmpeg_path() -> str:

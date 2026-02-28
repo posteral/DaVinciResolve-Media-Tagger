@@ -626,30 +626,33 @@
         const res = await fetch('/api/clip/ai-suggestion');
         if (!res.ok) return;
         const data = await res.json();
-        if (!data.suggestion) return;
+        if (!data.suggestions || data.suggestions.length === 0) return;
 
-        const row = document.createElement('div');
-        row.className = 'ai-suggestion-row';
+        data.suggestions.forEach(suggestion => {
+          const row = document.createElement('div');
+          row.className = 'ai-suggestion-row';
+          row.style.marginBottom = '6px';
 
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'ai-suggestion-input';
-        input.value = data.suggestion;
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'ai-suggestion-input';
+          input.value = suggestion;
 
-        const addBtn = document.createElement('button');
-        addBtn.className = 'ai-suggestion-add';
-        addBtn.textContent = '+ Add';
-        addBtn.addEventListener('click', () => {
-          const kw = input.value.trim();
-          if (kw) addSuggestion(kw, addBtn);
+          const addBtn = document.createElement('button');
+          addBtn.className = 'ai-suggestion-add';
+          addBtn.textContent = '+ Add';
+          addBtn.addEventListener('click', () => {
+            const kw = input.value.trim();
+            if (kw) addSuggestion(kw, addBtn);
+          });
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') addBtn.click();
+          });
+
+          row.appendChild(input);
+          row.appendChild(addBtn);
+          container.appendChild(row);
         });
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') addBtn.click();
-        });
-
-        row.appendChild(input);
-        row.appendChild(addBtn);
-        container.appendChild(row);
         section.style.display = 'block';
       } catch (_) {
         // best-effort — fail silently

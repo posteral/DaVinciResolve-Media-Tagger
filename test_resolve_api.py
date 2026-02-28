@@ -269,54 +269,61 @@ class TestNormaliseAiKeyword(unittest.TestCase):
         self.assertEqual(resolve_api._normalise_ai_keyword(""), "")
 
 
-class TestAiSuggestKeyword(unittest.TestCase):
+class TestAiSuggestKeywords(unittest.TestCase):
     def _make_urlopen(self, response_text):
-        import json
         body = json.dumps({"response": response_text}).encode()
         cm = MagicMock()
         cm.__enter__ = lambda s: MagicMock(read=MagicMock(return_value=body))
         cm.__exit__ = MagicMock(return_value=False)
         return cm
 
-    def test_returns_keyword_from_ollama(self):
+    def test_returns_three_keywords(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
-             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("mountain landscape")):
-            result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
-        self.assertEqual(result, "mountain landscape")
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("mountain landscape, sunset, rolling hills")):
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertEqual(result, ["mountain landscape", "sunset", "rolling hills"])
 
     def test_existing_keywords_included_in_prompt(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
-             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("waterfall")) as mock_open:
-            resolve_api.ai_suggest_keyword("/fake/clip.mov", existing_keywords=["sunset", "beach"])
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("waterfall, mist, rocks")) as mock_open:
+            resolve_api.ai_suggest_keywords("/fake/clip.mov", existing_keywords=["sunset", "beach"])
         called_payload = json.loads(mock_open.call_args[0][0].data)
         self.assertIn("sunset", called_payload["prompt"])
         self.assertIn("beach", called_payload["prompt"])
 
-    def test_returns_none_when_ollama_unreachable(self):
+    def test_deduplicates_against_existing_keywords(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("Imagination Station, Toledo, waterfall")):
+            result = resolve_api.ai_suggest_keywords(
+                "/fake/clip.mov",
+                existing_keywords=["Imagination Station", "Toledo", "Ohio"],
+            )
+        self.assertNotIn("Imagination Station", result)
+        self.assertNotIn("Toledo", result)
+        self.assertIn("waterfall", result)
+
+    def test_deduplicates_within_suggestions(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("sunset, sunset, rolling hills")):
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertEqual(result.count("sunset"), 1)
+
+    def test_returns_empty_when_ollama_unreachable(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
              patch("resolve_api.urllib.request.urlopen", side_effect=OSError("connection refused")):
-            result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
-        self.assertIsNone(result)
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertEqual(result, [])
 
-    def test_returns_none_when_thumbnail_unavailable(self):
+    def test_returns_empty_when_thumbnail_unavailable(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=None):
-            result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
-        self.assertIsNone(result)
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertEqual(result, [])
 
-    def test_returns_none_when_suggestion_duplicates_existing(self):
-        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
-             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("Imagination Station")):
-            result = resolve_api.ai_suggest_keyword(
-                "/fake/clip.mov",
-                existing_keywords=["United States", "Imagination Station", "Ohio"],
-            )
-        self.assertIsNone(result)
-
-    def test_returns_none_when_response_is_empty(self):
+    def test_returns_empty_when_response_is_empty(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
              patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("")):
-            result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
-        self.assertIsNone(result)
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertEqual(result, [])
 
 
 if __name__ == "__main__":
