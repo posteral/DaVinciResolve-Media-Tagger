@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-02-28
+
+### Changed
+
+- Proximity keyword suggestions now consider all clips in the current folder
+  recorded on the same calendar day as the current clip, instead of a fixed
+  window of 10 nearest clips by index. This produces more relevant suggestions
+  when a shoot day contains many clips.
+
 ## [0.7.3] - 2026-02-28
 
 ### Added

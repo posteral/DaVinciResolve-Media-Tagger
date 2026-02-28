@@ -4,7 +4,7 @@ Python agent for reading and writing keyword metadata on clips in DaVinci Resolv
 
 ## Current Status
 
-- `v0.7.3` is the current release.
+- `v0.7.4` is the current release.
 - Browser-based UI (`app.py`) for reading, editing, and receiving keyword suggestions for the selected clip.
 
 ## Requirements
