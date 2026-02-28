@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-02-28
+
+### Added
+
+- Up to 3 AI keyword suggestions returned in a single Ollama call. The model
+  is asked for 3 comma-separated keyword phrases; results are parsed,
+  normalised, and deduplicated against existing keywords and against each
+  other. The UI renders up to 3 editable rows under "AI Suggested".
+
+### Changed
+
+- AI suggestion is now editable before being staged: each suggestion appears
+  as a pre-filled text input alongside a `+ Add` button. The keyword can be
+  corrected (capitalisation, wording) before being added to the pending list.
+  Enter key also triggers Add.
+- `ai_suggest_keyword` renamed to `ai_suggest_keywords`; returns `list[str]`
+  instead of `str | None`. Route response key changed from `suggestion` to
+  `suggestions`.
+
+### Fixed
+
+- AI suggestion is now suppressed when the model returns a keyword already
+  present on the clip (case-insensitive check after normalisation).
+
 ## [0.7.0] - 2026-02-28
 
 ### Added
