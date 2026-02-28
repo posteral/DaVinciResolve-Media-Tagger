@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-02-28
+
+### Added
+
+- Grouped identity cards now show a **Split** button. Clicking it replaces the
+  grouped card in-place with one individual card per detection, each pre-filled
+  with the group's current name so mismatched identities can be corrected
+  independently.
+
 ## [0.15.1] - 2026-02-28
 
 ### Changed
