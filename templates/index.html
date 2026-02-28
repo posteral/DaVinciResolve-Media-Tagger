@@ -65,6 +65,13 @@
       margin-bottom: 12px;
     }
 
+    .identity-card-faces {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
     .identity-card-face {
       width: 64px;
       height: 64px;
@@ -72,7 +79,6 @@
       object-fit: cover;
       background: #1a1a1a;
       display: block;
-      margin-bottom: 8px;
     }
 
     .identity-card-face-placeholder {
@@ -83,7 +89,6 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 8px;
       font-size: 1.6rem;
       color: #555;
     }
@@ -1117,33 +1122,57 @@
         datalist.appendChild(opt);
       });
 
+      // Group detections by resolved identity_id; unknowns each get their own group.
+      const groups = [];
+      const groupById = {};
       detections.forEach(det => {
+        const key = det.identity_id || det.face_token; // unknowns keyed by token
+        if (groupById[key]) {
+          groupById[key].detections.push(det);
+        } else {
+          const g = { key, detections: [det] };
+          groupById[key] = g;
+          groups.push(g);
+        }
+      });
+
+      groups.forEach(group => {
+        const rep = group.detections[0]; // representative detection for name/status
         const card = document.createElement('div');
         card.className = 'identity-card';
-        card.dataset.faceToken = det.face_token;
-        card.dataset.identityId = det.identity_id || '';
-        card.dataset.isNew = det.identity_id ? 'false' : 'true';
+        // Store all face tokens (comma-separated) and representative identity metadata
+        card.dataset.faceTokens = group.detections.map(d => d.face_token).join(',');
+        card.dataset.identityId = rep.identity_id || '';
+        card.dataset.isNew = rep.identity_id ? 'false' : 'true';
 
-        // Face crop image
-        const img = document.createElement('img');
-        img.className = 'identity-card-face';
-        img.alt = 'Face';
-        img.src = '/api/clip/face-crop?token=' + encodeURIComponent(det.face_token);
-        img.onerror = function() {
-          const ph = document.createElement('div');
-          ph.className = 'identity-card-face-placeholder';
-          ph.textContent = '👤';
-          this.replaceWith(ph);
-        };
-        card.appendChild(img);
+        // Thumbnail strip — one image per detection in the group
+        const faceStrip = document.createElement('div');
+        faceStrip.className = 'identity-card-faces';
+        group.detections.forEach(det => {
+          const img = document.createElement('img');
+          img.className = 'identity-card-face';
+          img.alt = 'Face';
+          img.src = '/api/clip/face-crop?token=' + encodeURIComponent(det.face_token);
+          img.onerror = function() {
+            const ph = document.createElement('div');
+            ph.className = 'identity-card-face-placeholder';
+            ph.textContent = '👤';
+            this.replaceWith(ph);
+          };
+          faceStrip.appendChild(img);
+        });
+        card.appendChild(faceStrip);
 
-        // Status badge
+        // Status badge (use best status across group)
+        const bestStatus = group.detections.some(d => d.status === 'known') ? 'known'
+          : group.detections.some(d => d.status === 'low_confidence') ? 'low_confidence'
+          : 'unknown';
         const badge = document.createElement('span');
         badge.className = 'identity-status ' + (
-          det.status === 'known' ? 'known' :
-          det.status === 'low_confidence' ? 'low' : 'unknown'
+          bestStatus === 'known' ? 'known' :
+          bestStatus === 'low_confidence' ? 'low' : 'unknown'
         );
-        badge.textContent = det.status === 'low_confidence' ? 'low confidence' : det.status;
+        badge.textContent = bestStatus === 'low_confidence' ? 'low confidence' : bestStatus;
         card.appendChild(badge);
 
         // Assign input
@@ -1154,9 +1183,8 @@
         assignInput.className = 'identity-assign-input';
         assignInput.placeholder = 'Who is this?';
         assignInput.setAttribute('list', datalistId);
-        if (det.display_name) assignInput.value = det.display_name;
+        if (rep.display_name) assignInput.value = rep.display_name;
         assignInput.addEventListener('input', () => {
-          // If user changes the pre-filled name, mark as new identity
           const match = _identityRegistry.find(
             id => id.display_name.toLowerCase() === assignInput.value.trim().toLowerCase()
           );
@@ -1167,7 +1195,6 @@
             card.dataset.identityId = '';
             card.dataset.isNew = 'true';
           }
-          // Re-enable Apply whenever the user edits any name
           const applyBtn = document.getElementById('identity-apply-btn');
           if (applyBtn) {
             applyBtn.disabled = false;
@@ -1207,8 +1234,10 @@
         const displayName = input ? input.value.trim() : '';
         if (!displayName) return;
 
+        // Send one assignment per card; use the first token as the representative.
+        const primaryToken = (card.dataset.faceTokens || '').split(',')[0];
         assignments.push({
-          face_token: card.dataset.faceToken,
+          face_token: primaryToken,
           display_name: displayName,
           keyword_string: displayName,
           identity_id: card.dataset.identityId || null,
@@ -1244,7 +1273,7 @@
         applyBtn.disabled = true;
 
         // Update status badges to "known" for all cards that had a name assigned
-        cards.forEach(card => {
+        document.querySelectorAll('.identity-card').forEach(card => {
           const input = card.querySelector('.identity-assign-input');
           if (!input || !input.value.trim()) return;
           const badge = card.querySelector('.identity-status');
