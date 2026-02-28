@@ -212,7 +212,35 @@
 
     .identity-assign-wrap {
       margin-bottom: 8px;
+      position: relative;
     }
+
+    .identity-autocomplete-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #2e2e2e;
+      border: 1px solid #444;
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+      max-height: 160px;
+      overflow-y: auto;
+      z-index: 200;
+      display: none;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .identity-autocomplete-list.open { display: block; }
+    .identity-autocomplete-item {
+      padding: 6px 10px;
+      font-size: 0.8rem;
+      color: #d0d0d0;
+      cursor: pointer;
+    }
+    .identity-autocomplete-item:hover,
+    .identity-autocomplete-item.active { background: #3a3a3a; color: #e8e8e8; }
 
     .identity-assign-input {
       width: 100%;
@@ -1251,6 +1279,103 @@
       card.appendChild(btn);
     }
 
+    // Attach custom autocomplete to an identity assign input.
+    // On selection, updates card.dataset.identityId / isNew and re-enables Apply.
+    function _attachIdentityAutocomplete(input, assignWrap, card) {
+      const list = document.createElement('ul');
+      list.className = 'identity-autocomplete-list';
+      assignWrap.appendChild(list);
+
+      let activeIndex = 0;
+
+      function getMatches(query) {
+        if (!_identityRegistry.length) return [];
+        const q = query.toLowerCase();
+        return _identityRegistry
+          .filter(id => id.display_name.toLowerCase().includes(q))
+          .slice(0, 8);
+      }
+
+      function renderList(matches) {
+        list.innerHTML = '';
+        if (!matches.length) { list.classList.remove('open'); return; }
+        activeIndex = 0;
+        matches.forEach((id, i) => {
+          const li = document.createElement('li');
+          li.className = 'identity-autocomplete-item' + (i === 0 ? ' active' : '');
+          li.setAttribute('role', 'option');
+          li.textContent = id.display_name;
+          li.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            commitName(id.display_name, id.identity_id);
+          });
+          list.appendChild(li);
+        });
+        list.classList.add('open');
+      }
+
+      function closeList() {
+        list.classList.remove('open');
+        list.innerHTML = '';
+        activeIndex = 0;
+      }
+
+      function commitName(name, identityId) {
+        input.value = name;
+        card.dataset.identityId = identityId || '';
+        card.dataset.isNew = identityId ? 'false' : 'true';
+        closeList();
+        const applyBtn = document.getElementById('identity-apply-btn');
+        if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = 'Apply identities to keywords'; }
+      }
+
+      input.addEventListener('input', () => {
+        const matches = getMatches(input.value);
+        // Also update card metadata as user types (for manual free-text entry)
+        const typed = input.value.trim();
+        const exactMatch = _identityRegistry.find(
+          id => id.display_name.toLowerCase() === typed.toLowerCase()
+        );
+        card.dataset.identityId = exactMatch ? exactMatch.identity_id : '';
+        card.dataset.isNew = exactMatch ? 'false' : 'true';
+        const applyBtn = document.getElementById('identity-apply-btn');
+        if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = 'Apply identities to keywords'; }
+        renderList(matches);
+      });
+
+      input.addEventListener('keydown', (e) => {
+        const items = list.querySelectorAll('.identity-autocomplete-item');
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          activeIndex = Math.min(activeIndex + 1, items.length - 1);
+          items.forEach((el, i) => el.classList.toggle('active', i === activeIndex));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          activeIndex = Math.max(activeIndex - 1, 0);
+          items.forEach((el, i) => el.classList.toggle('active', i === activeIndex));
+        } else if (e.key === 'Enter') {
+          if (list.classList.contains('open') && items[activeIndex]) {
+            e.preventDefault();
+            const name = items[activeIndex].textContent;
+            const match = _identityRegistry.find(id => id.display_name === name);
+            commitName(name, match ? match.identity_id : null);
+          }
+        } else if (e.key === 'Escape') {
+          closeList();
+        }
+      });
+
+      input.addEventListener('focus', () => {
+        const matches = getMatches(input.value);
+        if (matches.length) renderList(matches);
+      });
+
+      input.addEventListener('blur', () => {
+        setTimeout(closeList, 150); // allow mousedown on list items to fire first
+      });
+    }
+
     // Build a single-detection identity card (used for ungrouped / split cards).
     function _buildSingleIdentityCard(det, datalistId, inheritedName) {
       const card = document.createElement('div');
@@ -1284,35 +1409,19 @@
       badge.textContent = det.status === 'low_confidence' ? 'low confidence' : det.status;
       card.appendChild(badge);
 
-      // Assign input
+      // Assign input with custom autocomplete
       const assignWrap = document.createElement('div');
       assignWrap.className = 'identity-assign-wrap';
       const assignInput = document.createElement('input');
       assignInput.type = 'text';
       assignInput.className = 'identity-assign-input';
       assignInput.placeholder = 'Who is this?';
-      assignInput.setAttribute('list', datalistId);
+      assignInput.autocomplete = 'off';
       // Prefer inherited name (from the group at split time), then the detection's own name.
       assignInput.value = inheritedName || det.display_name || '';
-      assignInput.addEventListener('input', () => {
-        const match = _identityRegistry.find(
-          id => id.display_name.toLowerCase() === assignInput.value.trim().toLowerCase()
-        );
-        if (match) {
-          card.dataset.identityId = match.identity_id;
-          card.dataset.isNew = 'false';
-        } else {
-          card.dataset.identityId = '';
-          card.dataset.isNew = 'true';
-        }
-        const applyBtn = document.getElementById('identity-apply-btn');
-        if (applyBtn) {
-          applyBtn.disabled = false;
-          applyBtn.textContent = 'Apply identities to keywords';
-        }
-      });
       assignWrap.appendChild(assignInput);
       card.appendChild(assignWrap);
+      _attachIdentityAutocomplete(assignInput, assignWrap, card);
 
       // Add as keyword checkbox
       const kwLabel = document.createElement('label');
@@ -1341,20 +1450,7 @@
         return;
       }
 
-      // Build datalist of known names for the assign input
-      const datalistId = 'identity-names-list';
-      let datalist = document.getElementById(datalistId);
-      if (!datalist) {
-        datalist = document.createElement('datalist');
-        datalist.id = datalistId;
-        document.body.appendChild(datalist);
-      }
-      datalist.innerHTML = '';
-      _identityRegistry.forEach(id => {
-        const opt = document.createElement('option');
-        opt.value = id.display_name;
-        datalist.appendChild(opt);
-      });
+      const datalistId = 'identity-names-list'; // kept for _buildSingleIdentityCard signature compat
 
       // Group detections by resolved identity_id; unknowns each get their own group.
       const groups = [];
@@ -1434,34 +1530,18 @@
         badge.textContent = bestStatus === 'low_confidence' ? 'low confidence' : bestStatus;
         card.appendChild(badge);
 
-        // Assign input
+        // Assign input with custom autocomplete
         const assignWrap = document.createElement('div');
         assignWrap.className = 'identity-assign-wrap';
         const assignInput = document.createElement('input');
         assignInput.type = 'text';
         assignInput.className = 'identity-assign-input';
         assignInput.placeholder = 'Who is this?';
-        assignInput.setAttribute('list', datalistId);
+        assignInput.autocomplete = 'off';
         if (rep.display_name) assignInput.value = rep.display_name;
-        assignInput.addEventListener('input', () => {
-          const match = _identityRegistry.find(
-            id => id.display_name.toLowerCase() === assignInput.value.trim().toLowerCase()
-          );
-          if (match) {
-            card.dataset.identityId = match.identity_id;
-            card.dataset.isNew = 'false';
-          } else {
-            card.dataset.identityId = '';
-            card.dataset.isNew = 'true';
-          }
-          const applyBtn = document.getElementById('identity-apply-btn');
-          if (applyBtn) {
-            applyBtn.disabled = false;
-            applyBtn.textContent = 'Apply identities to keywords';
-          }
-        });
         assignWrap.appendChild(assignInput);
         card.appendChild(assignWrap);
+        _attachIdentityAutocomplete(assignInput, assignWrap, card);
 
         // Add as keyword checkbox
         const kwLabel = document.createElement('label');
