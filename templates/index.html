@@ -133,10 +133,10 @@
       position: relative;
     }
 
-    .identity-card-split-btn {
+    .identity-card-split-btn,
+    .identity-card-dismiss-btn {
       position: absolute;
       top: 8px;
-      right: 8px;
       background: none;
       border: 1px solid #555;
       border-radius: 3px;
@@ -146,7 +146,10 @@
       cursor: pointer;
       line-height: 1.4;
     }
-    .identity-card-split-btn:hover { border-color: #888; color: #ccc; }
+    .identity-card-split-btn   { right: 8px; }
+    .identity-card-dismiss-btn { left: 8px; }
+    .identity-card-split-btn:hover,
+    .identity-card-dismiss-btn:hover { border-color: #888; color: #ccc; }
 
     .identity-card-faces {
       display: flex;
@@ -1212,6 +1215,25 @@
       }
     }
 
+    // Add a dismiss (×) button to a card. Removes the card and hides Apply if none remain.
+    function _addDismissButton(card) {
+      const btn = document.createElement('button');
+      btn.className = 'identity-card-dismiss-btn';
+      btn.textContent = '×';
+      btn.title = 'Dismiss — discard this detection. Will not be added as a keyword or saved to the identity library.';
+      btn.addEventListener('click', () => {
+        card.remove();
+        const remaining = document.querySelectorAll('.identity-card');
+        if (remaining.length === 0) {
+          const apply = document.getElementById('identity-apply-btn');
+          const none  = document.getElementById('identity-none');
+          if (apply) { apply.style.display = 'none'; apply.disabled = false; apply.textContent = 'Apply identities to keywords'; }
+          if (none)  none.style.display = 'block';
+        }
+      });
+      card.appendChild(btn);
+    }
+
     // Build a single-detection identity card (used for ungrouped / split cards).
     function _buildSingleIdentityCard(det, datalistId, inheritedName) {
       const card = document.createElement('div');
@@ -1285,6 +1307,7 @@
       kwLabel.appendChild(document.createTextNode('Add as keyword'));
       card.appendChild(kwLabel);
 
+      _addDismissButton(card);
       return card;
     }
 
@@ -1433,6 +1456,7 @@
         kwLabel.appendChild(document.createTextNode('Add as keyword'));
         card.appendChild(kwLabel);
 
+        _addDismissButton(card);
         cards.appendChild(card);
       });
 
