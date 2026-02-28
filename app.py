@@ -17,6 +17,26 @@ _catalog_lock = threading.Lock()  # guards _keyword_catalog / _catalog_loaded
 _catalog_refresh_pending = False   # prevents stacking multiple refresh threads
 
 
+def _rebuild_folder_cache_bg() -> None:
+    """Rebuild the folder clip cache in a background thread after a Save.
+
+    Uses the same polite lock pattern as _refresh_catalog_bg so interactive
+    requests are never blocked waiting behind this rebuild."""
+    try:
+        for _ in range(30):
+            acquired = _resolve_lock.acquire(timeout=0.1)
+            if acquired:
+                try:
+                    resolve = _get_resolve()
+                    resolve_api.suggest_keywords(resolve)  # populates _folder_cache
+                finally:
+                    _resolve_lock.release()
+                break
+            time.sleep(2)
+    except Exception:
+        pass  # stale cache is fine; next navigate will rebuild on demand
+
+
 def _refresh_catalog_bg() -> None:
     """Rebuild the keyword catalog in a background thread.
 
@@ -255,8 +275,10 @@ def set_keywords():
     if not ok:
         return jsonify({"error": "Resolve rejected the write. Check External Scripting is enabled."}), 500
 
-    # Invalidate folder cache so next navigate/suggest reflects the new keywords.
+    # Invalidate folder cache and rebuild it in background so the next
+    # navigate press finds a warm cache with up-to-date keywords.
     resolve_api.invalidate_folder_cache()
+    threading.Thread(target=_rebuild_folder_cache_bg, daemon=True).start()
 
     # Refresh catalog in background — does not block the Save response.
     with _catalog_lock:
