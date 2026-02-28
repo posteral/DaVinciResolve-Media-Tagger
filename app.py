@@ -203,6 +203,7 @@ def navigate_clip():
 
 @app.route("/api/clip/keywords", methods=["POST"])
 def set_keywords():
+    global _catalog_refresh_pending
     body = request.get_json(silent=True) or {}
     keywords = body.get("keywords")
     if not isinstance(keywords, list):
