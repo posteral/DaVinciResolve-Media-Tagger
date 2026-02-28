@@ -613,7 +613,7 @@
         loadSuggestions();
       }
       if (!data.no_proxy && data.file_path) {
-        loadAiSuggestion(data.file_path);
+        loadAiSuggestion(data.file_path, data.suggestions || []);
         loadIdentities(data.file_path);
       }
       initKeywordInput();
@@ -889,7 +889,7 @@
       section.style.display = 'block';
     }
 
-    async function loadAiSuggestion(filePath) {
+    async function loadAiSuggestion(filePath, proximitySuggestions = []) {
       const aiSpinner = document.getElementById('ai-spinner');
       const aiSection = document.getElementById('ai-suggestion-section');
       if (aiSection) aiSection.style.display = 'block';
@@ -899,6 +899,7 @@
         if (filePath) {
           const params = new URLSearchParams({ path: filePath });
           if (currentKeywords.length) params.set('keywords', currentKeywords.join(','));
+          if (proximitySuggestions.length) params.set('suggestions', proximitySuggestions.join(','));
           url += '?' + params.toString();
         }
         const res = await fetch(url);

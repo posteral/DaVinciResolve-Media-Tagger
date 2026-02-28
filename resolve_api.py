@@ -441,6 +441,7 @@ def ai_suggest_keywords(
     file_path: str,
     model: str = "llava",
     existing_keywords: list[str] | None = None,
+    proximity_suggestions: list[str] | None = None,
     n: int = 3,
 ) -> list[str]:
     """Return up to n AI-generated keyword suggestions for a clip by sending
@@ -458,9 +459,16 @@ def ai_suggest_keywords(
     display_path = file_path[idx + len(marker):] if idx != -1 else file_path
     path_context = f"The file path of this clip is: {display_path}. "
 
+    context_parts: list[str] = []
     if existing_keywords:
+        context_parts.append(f"This clip already has these keywords: {', '.join(existing_keywords)}.")
+    if proximity_suggestions:
+        context_parts.append(f"Nearby clips in the same shoot have these keywords: {', '.join(proximity_suggestions)}.")
+    all_context = " ".join(context_parts)
+
+    if all_context:
         kw_context = (
-            f"This clip already has these keywords: {', '.join(existing_keywords)}. "
+            f"{all_context} "
             f"Suggest {n} additional keywords not already in that list. "
         )
     else:

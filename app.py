@@ -182,16 +182,25 @@ def clip_ai_suggestion():
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
     else:
-        # Keywords were already fetched by the navigate route; caller passes them
-        # as a comma-separated query param so we don't need the lock at all.
+        # Keywords and suggestions were already fetched by the navigate/clip route;
+        # caller passes them as comma-separated query params so we don't need the lock.
         kw_param = request.args.get("keywords", "").strip()
         existing_keywords = [k.strip() for k in kw_param.split(",") if k.strip()]
+
+    proximity_suggestions: list[str] = []
+    sug_param = request.args.get("suggestions", "").strip()
+    if sug_param:
+        proximity_suggestions = [k.strip() for k in sug_param.split(",") if k.strip()]
 
     if not file_path:
         return jsonify({"suggestions": []})
 
-    suggestions = resolve_api.ai_suggest_keywords(file_path, existing_keywords=existing_keywords)
-    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} suggestions={suggestions!r}")
+    suggestions = resolve_api.ai_suggest_keywords(
+        file_path,
+        existing_keywords=existing_keywords,
+        proximity_suggestions=proximity_suggestions,
+    )
+    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} proximity={proximity_suggestions!r} suggestions={suggestions!r}")
     return jsonify({"suggestions": suggestions})
 
 
