@@ -2,13 +2,21 @@ from flask import Flask, render_template, jsonify, request, send_file
 from io import BytesIO
 import threading
 import time
+import uuid
 import resolve_api
+import identity_recognition
+import identity_registry
 
 app = Flask(__name__)
 
 # Resolve scripting is not thread-safe: serialise every IPC call.
 _resolve_lock = threading.Lock()
 _resolve_obj = None
+
+# Identity recognition: process-level caches keyed by face_token (uuid string).
+# Both are cleared on server restart — confirm handles that gracefully.
+_face_crop_cache: dict[str, bytes] = {}   # face_token → JPEG crop bytes
+_detection_cache: dict[str, list] = {}    # face_token → mean embedding
 
 # Keyword catalog: populated on first request, refreshed after every Save.
 _keyword_catalog: list[str] = []
@@ -275,6 +283,120 @@ def set_keywords():
         threading.Thread(target=_refresh_catalog_bg, daemon=True).start()
 
     return jsonify({"clip": name, "keywords": keywords})
+
+
+@app.route("/api/clip/detect-identities", methods=["POST"])
+def detect_identities():
+    """Run face detection on the clip's proxy frames. Expensive — runs outside
+    _resolve_lock. The caller passes the proxy path in the request body."""
+    body = request.get_json(silent=True) or {}
+    file_path = body.get("path", "").strip()
+    if not file_path:
+        return jsonify({"error": "path is required"}), 400
+
+    frames = resolve_api.frames_from_file_path(file_path)
+    if not frames:
+        return jsonify({"detections": []})
+
+    registry = identity_registry.load_registry()
+    detections = identity_recognition.run_detection_pipeline(frames, registry)
+
+    response_detections = []
+    for det in detections:
+        token = str(uuid.uuid4())
+        _face_crop_cache[token] = det["best_crop"]
+        _detection_cache[token] = det["mean_embedding"]
+        response_detections.append({
+            "face_token": token,
+            "status": det["status"],
+            "identity_id": det["identity_id"],
+            "display_name": det["display_name"],
+            "keyword_string": det["keyword_string"],
+            "distance": det["distance"],
+            "occurrence_count": det["occurrence_count"],
+        })
+
+    print(f"[detect-identities] path={file_path!r} found={len(response_detections)} face(s)")
+    return jsonify({"detections": response_detections})
+
+
+@app.route("/api/clip/face-crop")
+def face_crop():
+    """Return the JPEG face crop for a given face_token. 404 if token unknown."""
+    token = request.args.get("token", "").strip()
+    crop = _face_crop_cache.get(token)
+    if crop is None:
+        return "", 404
+    return send_file(BytesIO(crop), mimetype="image/jpeg")
+
+
+@app.route("/api/identities")
+def list_identities():
+    """Return all known identities (lightweight, no embeddings) for the UI."""
+    registry = identity_registry.load_registry()
+    return jsonify({"identities": identity_registry.list_identities(registry)})
+
+
+@app.route("/api/identities/confirm", methods=["POST"])
+def confirm_identities():
+    """Commit user assignments from the review panel.
+
+    For each assignment:
+    - is_new_identity=True  → create a new registry entry
+    - is_new_identity=False → append embedding to existing entry
+    Returns the list of keyword_strings that should be added to the clip."""
+    body = request.get_json(silent=True) or {}
+    assignments = body.get("assignments", [])
+    if not isinstance(assignments, list):
+        return jsonify({"error": "assignments must be a list"}), 400
+
+    registry = identity_registry.load_registry()
+    keywords_added: list[str] = []
+
+    for assignment in assignments:
+        face_token = assignment.get("face_token", "")
+        display_name = (assignment.get("display_name") or "").strip()
+        keyword_string = (assignment.get("keyword_string") or display_name).strip()
+        identity_id = assignment.get("identity_id")
+        is_new = assignment.get("is_new_identity", False)
+        add_as_keyword = assignment.get("add_as_keyword", True)
+
+        if not display_name:
+            continue
+
+        embedding = _detection_cache.get(face_token)
+        crop = _face_crop_cache.get(face_token)
+
+        if is_new or not identity_id:
+            # Check if a matching name already exists (user may have typed an
+            # existing name rather than selecting from the datalist).
+            existing = identity_registry.find_identity_by_name(registry, display_name)
+            if existing:
+                identity_id = existing["identity_id"]
+                is_new = False
+            else:
+                registry, identity_id = identity_registry.add_identity(
+                    registry, display_name, keyword_string,
+                    embedding if embedding else [],
+                    crop,
+                )
+
+        if not is_new and identity_id:
+            if embedding:
+                registry = identity_registry.update_identity_embedding(
+                    registry, identity_id, embedding, crop
+                )
+
+        if add_as_keyword and keyword_string:
+            keywords_added.append(keyword_string)
+
+    try:
+        identity_registry.save_registry(registry)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to save registry: {exc}"}), 500
+
+    print(f"[confirm-identities] keywords_added={keywords_added!r}")
+    return jsonify({"keywords_added": keywords_added})
 
 
 if __name__ == "__main__":
