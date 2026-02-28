@@ -186,18 +186,41 @@
     .suggestion-btn:hover:not(:disabled) { background: #4e3a78; }
     .suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .ai-suggestion-btn {
+    .ai-suggestion-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .ai-suggestion-input {
       background: #0f3333;
       color: #7dd4d4;
       border: 1px solid #1a5c5c;
       border-radius: 4px;
       padding: 3px 10px;
       font-size: 0.85rem;
+      font-family: inherit;
+      flex: 1;
+      min-width: 0;
+    }
+    .ai-suggestion-input:focus {
+      outline: none;
+      border-color: #2a8a8a;
+    }
+
+    .ai-suggestion-add {
+      background: #1a5c5c;
+      color: #7dd4d4;
+      border: 1px solid #2a8a8a;
+      border-radius: 4px;
+      padding: 3px 12px;
+      font-size: 0.85rem;
       cursor: pointer;
+      white-space: nowrap;
       transition: background 0.15s;
     }
-    .ai-suggestion-btn:hover:not(:disabled) { background: #1a4a4a; }
-    .ai-suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .ai-suggestion-add:hover:not(:disabled) { background: #236060; }
+    .ai-suggestion-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .thumbnail-wrap {
       margin-bottom: 20px;
@@ -605,11 +628,28 @@
         const data = await res.json();
         if (!data.suggestion) return;
 
-        const btn = document.createElement('button');
-        btn.className = 'ai-suggestion-btn';
-        btn.textContent = '+ ' + data.suggestion;
-        btn.addEventListener('click', () => addSuggestion(data.suggestion, btn));
-        container.appendChild(btn);
+        const row = document.createElement('div');
+        row.className = 'ai-suggestion-row';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ai-suggestion-input';
+        input.value = data.suggestion;
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'ai-suggestion-add';
+        addBtn.textContent = '+ Add';
+        addBtn.addEventListener('click', () => {
+          const kw = input.value.trim();
+          if (kw) addSuggestion(kw, addBtn);
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') addBtn.click();
+        });
+
+        row.appendChild(input);
+        row.appendChild(addBtn);
+        container.appendChild(row);
         section.style.display = 'block';
       } catch (_) {
         // best-effort — fail silently
