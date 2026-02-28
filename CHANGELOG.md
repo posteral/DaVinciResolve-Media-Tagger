@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-02-28
+
+### Added
+
+- Keywords are now displayed and written back to Resolve in
+  case-insensitive alphabetical order, making the order deterministic
+  for any given set of keywords.
+- Save button appears automatically on clip load when the stored keyword
+  order in Resolve differs from alphabetical — allows one-click
+  re-sorting of existing clips without making any other change.
+
+### Fixed
+
+- Save button now hides immediately after a successful save.
+
+### Performance
+
+- Removed `all_clip_dates` debug field from the `[suggestions]` log
+  line; it was calling `_clip_date_key` on every clip a second time,
+  making the suggestions route slow on large folders.
+
 ## [0.7.5] - 2026-02-28
 
 ### Fixed
