@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-02-28
+
+### Removed
+
+- `merge_keywords()` and `_dedupe_preserve_order()` deleted from `resolve_api.py`.
+  Both were written for the v0.1 CLI which was removed in v0.3.3; no production
+  code called them. Their 12 unit tests removed from `test_resolve_api.py`.
+
 ## [0.6.0] - 2026-02-28
 
 ### Added
