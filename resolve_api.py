@@ -305,10 +305,18 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     if current_index is None:
         return [], {"reason": "current clip not found in folder"}
 
+    # Only consider clips within a window around the current clip.
+    # This prevents keywords that appear on hundreds of distant clips from
+    # accumulating enough 1/d weight to drown out immediately-adjacent clips.
+    WINDOW = 50
+    lo = max(0, current_index - WINDOW)
+    hi = min(len(clips), current_index + WINDOW + 1)
+
     scores: dict[str, float] = {}
     first_seen: dict[str, str] = {}
     neighbour_count = 0
-    for i, c in enumerate(clips):
+    for i in range(lo, hi):
+        c = clips[i]
         cid = c.GetMediaId()
         if cid == current_id:
             continue
@@ -481,11 +489,11 @@ def ai_suggest_keywords(
             f"{path_context}"
             f"{kw_context}"
             f"{catalog_context}"
-            "Each keyword is a phrase of 1-4 words describing a distinct aspect of the clip. "
-            "If a subject is a specific named place, landmark, or person use Title Case. "
-            "If a subject is a generic object, animal, activity, or natural feature use lowercase. "
-            "Examples: 'sunset', 'rolling hills', 'prayer flags', 'Eiffel Tower', 'Trevi Fountain'. "
-            f"Reply with exactly {n} keyword phrases separated by commas, nothing else."
+            "Rules: each keyword must be 1-4 words only, no sentences or punctuation. "
+            "Named places, landmarks, and people use Title Case. "
+            "Generic objects, activities, and features use lowercase. "
+            f"Respond with exactly {n} comma-separated keywords and nothing else. "
+            f"Example format: keyword one, Keyword Two, keyword three"
         ),
         "images": [base64.b64encode(f).decode() for f in frames],
         "stream": False,
@@ -510,6 +518,9 @@ def ai_suggest_keywords(
         for part in text.split(","):
             kw = part.strip().strip(".")
             if not kw:
+                continue
+            # Reject sentence fragments — real keywords are at most 4 words (~40 chars).
+            if len(kw) > 40 or len(kw.split()) > 5:
                 continue
             normalised = _normalise_ai_keyword(kw, existing_keywords)
             lower = normalised.lower()

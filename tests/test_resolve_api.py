@@ -300,6 +300,29 @@ class TestSuggestKeywords(unittest.TestCase):
         self.assertIn("same_day", suggestions)
         self.assertIn("other_day", suggestions)
 
+    def test_window_excludes_clips_beyond_50_positions(self):
+        # Build a list where cur is at index 0, near at index 1 (distance=1),
+        # and 60 "far" clips at indices 51..110 (distance 51-110, outside ±50 window).
+        # 'far' should score 0; 'near' should score 1.0 and appear in suggestions.
+        import datetime as _dt
+        base = _dt.datetime(2024, 1, 1, 12, 0, 0)
+        clips = []
+        clips.append(self._make_clip("cur", [], base.strftime("%m/%d/%Y %H:%M:%S")))
+        clips.append(self._make_clip("near1", ["near"],
+                                     (base + _dt.timedelta(minutes=1)).strftime("%m/%d/%Y %H:%M:%S")))
+        # 49 empty padding clips at indices 2..50 (inside window, no keywords)
+        for i in range(2, 51):
+            t = (base + _dt.timedelta(minutes=i)).strftime("%m/%d/%Y %H:%M:%S")
+            clips.append(self._make_clip(f"pad{i}", [], t))
+        # 60 "far" clips at indices 51..110 (all outside window)
+        for i in range(51, 111):
+            t = (base + _dt.timedelta(minutes=i)).strftime("%m/%d/%Y %H:%M:%S")
+            clips.append(self._make_clip(f"far{i}", ["far"], t))
+        resolve = self._make_resolve(clips, "cur")
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
+        self.assertIn("near", suggestions)
+        self.assertNotIn("far", suggestions)
+
 
 class TestNormaliseAiKeyword(unittest.TestCase):
     def test_generic_phrase_lowercased(self):
@@ -472,6 +495,18 @@ class TestAiSuggestKeywords(unittest.TestCase):
              patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("")):
             result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
         self.assertEqual(result, [])
+
+    def test_rejects_sentence_fragments(self):
+        # LLMs sometimes return verbose sentences instead of short keyword phrases.
+        # Anything longer than 40 chars or more than 5 words should be dropped.
+        long_sentence = "this is a very long sentence that should be rejected by the filter"
+        short_kw = "brick building"
+        response = f"{long_sentence}, {short_kw}"
+        with patch("resolve_api.frames_from_file_path", return_value=[b"F1"]), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen(response)):
+            result = resolve_api.ai_suggest_keywords("/fake/clip.mov")
+        self.assertNotIn(long_sentence, result)
+        self.assertIn("brick building", result)
 
 
 class TestGetAllProjectKeywords(unittest.TestCase):
