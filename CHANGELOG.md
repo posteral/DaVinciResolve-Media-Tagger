@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-02-28
+
+### Fixed
+
+- Proximity suggestions now correctly handle clips where Resolve returns
+  `Date Created` in the format `Sat Sep 28 2024 19:35:21`
+  (`%a %b %d %Y %H:%M:%S`). Previously these clips silently fell back to
+  `datetime.max` and produced no suggestions.
+- Clips with no parseable `Date Created` are now excluded from the
+  same-day neighbour pool rather than falsely matching each other via
+  `datetime.max`.
+
+### Changed
+
+- `suggest_keywords` now returns a `(suggestions, debug)` tuple; the
+  debug dict is printed to stdout as `[suggestions]` on every request,
+  showing the current clip's parsed date, total clips in folder, matched
+  same-day neighbours, and all clip dates — useful for diagnosing missing
+  suggestions.
+
 ## [0.7.4] - 2026-02-28
 
 ### Changed
