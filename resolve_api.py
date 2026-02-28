@@ -442,7 +442,7 @@ def ai_suggest_keywords(
     model: str = "llava",
     existing_keywords: list[str] | None = None,
     proximity_suggestions: list[str] | None = None,
-    n: int = 3,
+    n: int = 5,
 ) -> list[str]:
     """Return up to n AI-generated keyword suggestions for a clip by sending
     multiple sampled frames to a locally running Ollama VLM. Returns [] if
