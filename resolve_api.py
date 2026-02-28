@@ -235,24 +235,16 @@ def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
     current_date_key = _clip_date_key(current_item)[0]  # datetime or datetime.max
 
     if current_date_key == datetime.max:
-        raw_date = ""
-        try:
-            raw_date = current_item.GetClipProperty("Date Created") or ""
-        except Exception:
-            pass
-        return [], {"reason": "current clip has no parseable date",
-                    "clip": current_item.GetName(),
-                    "raw_date": repr(raw_date)}
+        return [], {"reason": "no parseable date", "clip": current_item.GetName()}
 
-    neighbour_dates = {c.GetName(): str(_clip_date_key(c)[0].date())
-                       for c in clips if c.GetMediaId() != current_id}
-
-    neighbours = [
-        c for c in clips
-        if c.GetMediaId() != current_id
-        and _clip_date_key(c)[0] != datetime.max
-        and _clip_date_key(c)[0].date() == current_date_key.date()
-    ]
+    current_date = current_date_key.date()
+    neighbours = []
+    for c in clips:
+        if c.GetMediaId() == current_id:
+            continue
+        d = _clip_date_key(c)[0]
+        if d != datetime.max and d.date() == current_date:
+            neighbours.append(c)
 
     current_kws = {k.lower() for k in get_keywords(current_item)}
 
@@ -271,10 +263,9 @@ def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
 
     debug = {
         "clip": current_item.GetName(),
-        "date": str(current_date_key.date()),
-        "total_clips_in_folder": len(clips),
-        "same_day_neighbours": [c.GetName() for c in neighbours],
-        "all_clip_dates": neighbour_dates,
+        "date": str(current_date),
+        "neighbours": len(neighbours),
+        "suggestions": suggestions,
     }
     return suggestions, debug
 
