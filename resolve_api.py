@@ -189,7 +189,6 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     """Select the next (+1) or previous (-1) clip in the current Media Pool
     folder, ordered by Date Created (matching Resolve's default UI sort).
     Returns the newly selected MediaPoolItem, or None if at boundary."""
-    import time as _time
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         return None
@@ -200,19 +199,15 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     if media_pool is None:
         return None
 
-    ta = _time.monotonic()
     current_item = get_selected_media_pool_item(resolve)
-    tb = _time.monotonic()
     if current_item is None:
         return None
 
     folder = media_pool.GetCurrentFolder()
-    tc = _time.monotonic()
     if folder is None:
         return None
 
     clips = _get_sorted_clips(folder)
-    td = _time.monotonic()
     if not clips:
         return None
 
@@ -227,15 +222,16 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
 
     new_item = clips[new_index]
     media_pool.SetSelectedClip(new_item)
-    te = _time.monotonic()
-    print(f"[navigate_clip] get_selected={tb-ta:.2f}s get_folder={tc-tb:.2f}s get_sorted_clips={td-tc:.2f}s set_selected={te-td:.2f}s")
     return new_item
 
 
-def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
+def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str], dict]:
     """Return up to 3 keyword suggestions for the current clip based on
     keywords used by all other clips recorded on the same calendar day
-    in the same folder. Also returns a debug dict."""
+    in the same folder. Also returns a debug dict.
+
+    If current_item is provided it is used directly, avoiding a redundant
+    get_selected_media_pool_item() IPC call."""
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         return [], {"reason": "no project manager"}
@@ -246,7 +242,8 @@ def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
     if media_pool is None:
         return [], {"reason": "no media pool"}
 
-    current_item = get_selected_media_pool_item(resolve)
+    if current_item is None:
+        current_item = get_selected_media_pool_item(resolve)
     if current_item is None:
         return [], {"reason": "no current item"}
 

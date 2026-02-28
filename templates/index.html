@@ -447,9 +447,13 @@
       `;
       renderKeywords();
       if (data.unsorted) showSave();
-      loadThumbnail();
-      loadSuggestions();
-      loadAiSuggestion();
+      loadThumbnail(data.file_path || null);
+      if (data.suggestions !== undefined) {
+        renderSuggestions(data.suggestions);
+      } else {
+        loadSuggestions();
+      }
+      loadAiSuggestion(data.file_path || null);
       initKeywordInput();
       document.getElementById('prev-btn').style.display = 'inline-flex';
       document.getElementById('next-btn').style.display = 'inline-flex';
@@ -635,13 +639,16 @@
       document.getElementById('saved-msg').style.display = 'none';
     }
 
-    async function loadThumbnail() {
+    async function loadThumbnail(filePath) {
       const img = document.getElementById('clip-thumbnail');
       const placeholder = document.getElementById('thumb-placeholder');
       if (!img || !placeholder) return;
 
       try {
-        const res = await fetch('/api/clip/thumbnail');
+        const url = filePath
+          ? '/api/clip/thumbnail?path=' + encodeURIComponent(filePath)
+          : '/api/clip/thumbnail';
+        const res = await fetch(url);
         if (!res.ok) return; // placeholder stays visible
         const blob = await res.blob();
         img.src = URL.createObjectURL(blob);
@@ -652,70 +659,80 @@
       }
     }
 
-    async function loadSuggestions() {
+    function renderSuggestions(suggestions) {
       const section = document.getElementById('suggestions-section');
       const container = document.getElementById('suggestions-container');
-      if (!section || !container) return;
+      if (!section || !container || !suggestions || suggestions.length === 0) return;
 
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
+      suggestions.forEach(kw => {
+        const btn = document.createElement('button');
+        btn.className = 'suggestion-btn';
+        btn.textContent = '+ ' + kw;
+        btn.addEventListener('click', () => addSuggestion(kw, btn));
+        row.appendChild(btn);
+      });
+      container.appendChild(row);
+      section.style.display = 'block';
+    }
+
+    async function loadSuggestions() {
       try {
         const res = await fetch('/api/clip/suggestions');
         if (!res.ok) return;
         const data = await res.json();
-        if (!data.suggestions || data.suggestions.length === 0) return;
-
-        const row = document.createElement('div');
-        row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
-        data.suggestions.forEach(kw => {
-          const btn = document.createElement('button');
-          btn.className = 'suggestion-btn';
-          btn.textContent = '+ ' + kw;
-          btn.addEventListener('click', () => addSuggestion(kw, btn));
-          row.appendChild(btn);
-        });
-        container.appendChild(row);
-        section.style.display = 'block';
+        renderSuggestions(data.suggestions);
       } catch (_) {
         // suggestions are best-effort — fail silently
       }
     }
 
-    async function loadAiSuggestion() {
+    function renderAiSuggestions(suggestions) {
       const section = document.getElementById('ai-suggestion-section');
       const container = document.getElementById('ai-suggestion-container');
-      if (!section || !container) return;
+      if (!section || !container || !suggestions || suggestions.length === 0) return;
 
+      suggestions.forEach(suggestion => {
+        const row = document.createElement('div');
+        row.className = 'ai-suggestion-row';
+        row.style.marginBottom = '6px';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ai-suggestion-input';
+        input.value = suggestion;
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'ai-suggestion-add';
+        addBtn.textContent = '+ Add';
+        addBtn.addEventListener('click', () => {
+          const kw = input.value.trim();
+          if (kw) addSuggestion(kw, addBtn);
+        });
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') addBtn.click();
+        });
+
+        row.appendChild(input);
+        row.appendChild(addBtn);
+        container.appendChild(row);
+      });
+      section.style.display = 'block';
+    }
+
+    async function loadAiSuggestion(filePath) {
       try {
-        const res = await fetch('/api/clip/ai-suggestion');
+        let url = '/api/clip/ai-suggestion';
+        if (filePath) {
+          const params = new URLSearchParams({ path: filePath });
+          if (currentKeywords.length) params.set('keywords', currentKeywords.join(','));
+          url += '?' + params.toString();
+        }
+        const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
-        if (!data.suggestions || data.suggestions.length === 0) return;
-
-        data.suggestions.forEach(suggestion => {
-          const row = document.createElement('div');
-          row.className = 'ai-suggestion-row';
-          row.style.marginBottom = '6px';
-
-          const input = document.createElement('input');
-          input.type = 'text';
-          input.className = 'ai-suggestion-input';
-          input.value = suggestion;
-
-          const addBtn = document.createElement('button');
-          addBtn.className = 'ai-suggestion-add';
-          addBtn.textContent = '+ Add';
-          addBtn.addEventListener('click', () => {
-            const kw = input.value.trim();
-            if (kw) addSuggestion(kw, addBtn);
-          });
-          input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') addBtn.click();
-          });
-
-          row.appendChild(input);
-          row.appendChild(addBtn);
-          container.appendChild(row);
-        });
-        section.style.display = 'block';
+        renderAiSuggestions(data.suggestions);
       } catch (_) {
         // best-effort — fail silently
       }

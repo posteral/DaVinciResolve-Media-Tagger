@@ -1,7 +1,7 @@
 from flask import Flask, render_template, jsonify, request, send_file
 from io import BytesIO
-import time
 import threading
+import time
 import resolve_api
 
 app = Flask(__name__)
@@ -91,25 +91,29 @@ def clip():
 
 @app.route("/api/clip/thumbnail")
 def clip_thumbnail():
-    # Step 1: grab file path under the lock (fast IPC call).
-    try:
-        with _resolve_lock:
-            resolve = _get_resolve()
-            item = resolve_api.get_selected_media_pool_item(resolve)
-            if item is None:
-                return "", 204
-            file_path = (
-                item.GetClipProperty("Proxy Media Path")
-                or item.GetClipProperty("File Path")
-                or ""
-            )
-    except Exception:
-        return "", 204
+    # If the caller already knows the file path, use it directly (no IPC needed).
+    file_path = request.args.get("path", "").strip()
+
+    if not file_path:
+        # Fall back: grab file path under the lock.
+        try:
+            with _resolve_lock:
+                resolve = _get_resolve()
+                item = resolve_api.get_selected_media_pool_item(resolve)
+                if item is None:
+                    return "", 204
+                file_path = (
+                    item.GetClipProperty("Proxy Media Path")
+                    or item.GetClipProperty("File Path")
+                    or ""
+                )
+        except Exception:
+            return "", 204
 
     if not file_path:
         return "", 204
 
-    # Step 2: extract frame with ffmpeg — no Resolve IPC, safe to run freely.
+    # Extract frame with ffmpeg — no Resolve IPC, safe to run freely.
     png = resolve_api.thumbnail_from_file_path(file_path)
     if png is None:
         return "", 204
@@ -132,20 +136,30 @@ def clip_suggestions():
 
 @app.route("/api/clip/ai-suggestion")
 def clip_ai_suggestion():
-    try:
-        with _resolve_lock:
-            resolve = _get_resolve()
-            item = resolve_api.get_selected_media_pool_item(resolve)
-            if item is None:
-                return jsonify({"suggestions": []})
-            file_path = (
-                item.GetClipProperty("Proxy Media Path")
-                or item.GetClipProperty("File Path")
-                or ""
-            )
-            existing_keywords = resolve_api.get_keywords(item)
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+    # If the caller already knows the file path, use it directly (no IPC needed).
+    file_path = request.args.get("path", "").strip()
+    existing_keywords: list[str] = []
+
+    if not file_path:
+        try:
+            with _resolve_lock:
+                resolve = _get_resolve()
+                item = resolve_api.get_selected_media_pool_item(resolve)
+                if item is None:
+                    return jsonify({"suggestions": []})
+                file_path = (
+                    item.GetClipProperty("Proxy Media Path")
+                    or item.GetClipProperty("File Path")
+                    or ""
+                )
+                existing_keywords = resolve_api.get_keywords(item)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+    else:
+        # Keywords were already fetched by the navigate route; caller passes them
+        # as a comma-separated query param so we don't need the lock at all.
+        kw_param = request.args.get("keywords", "").strip()
+        existing_keywords = [k.strip() for k in kw_param.split(",") if k.strip()]
 
     if not file_path:
         return jsonify({"suggestions": []})
@@ -182,30 +196,31 @@ def navigate_clip():
 
     try:
         with _resolve_lock:
-            import time as _time
-            t0 = _time.monotonic()
             resolve = _get_resolve()
-            t1 = _time.monotonic()
             item = resolve_api.navigate_clip(resolve, direction)
-            t2 = _time.monotonic()
             if item is None:
                 return jsonify({"error": "No more clips"}), 404
             name = item.GetName() or "<unnamed clip>"
-            t3 = _time.monotonic()
             keywords = resolve_api.get_keywords(item)
-            t4 = _time.monotonic()
             keywords_stored = resolve_api._normalize_keywords(
                 item.GetMetadata("Keywords") or item.GetClipProperty("Keywords") or ""
             )
-            t5 = _time.monotonic()
+            file_path = (
+                item.GetClipProperty("Proxy Media Path")
+                or item.GetClipProperty("File Path")
+                or ""
+            )
+            suggestions, debug = resolve_api.suggest_keywords(resolve, current_item=item)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-    print(f"[navigate timing] get_resolve={t1-t0:.2f}s navigate={t2-t1:.2f}s get_name={t3-t2:.2f}s get_keywords={t4-t3:.2f}s get_stored={t5-t4:.2f}s total={t5-t0:.2f}s")
+    print(f"[navigate] {debug}")
     return jsonify({
         "clip": name,
         "keywords": keywords,
         "unsorted": keywords_stored != keywords,
+        "file_path": file_path,
+        "suggestions": suggestions,
     })
 
 
