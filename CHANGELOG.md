@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-02-28
+
+### Fixed
+
+- `get_keywords()` now deduplicates keywords case-insensitively before
+  returning. Clips where Resolve has stored the same keyword twice will show
+  the Save button automatically on Refresh, allowing a one-click fix.
+
 ## [0.11.0] - 2026-02-28
 
 ### Added
