@@ -457,7 +457,9 @@ def ai_suggest_keywords(
     import base64
     import json
 
-    frames = frames_from_file_path(file_path)
+    # Use a single representative frame (midpoint) for speed.
+    # Sending 5 frames multiplies inference time ~5× with minimal quality gain.
+    frames = frames_from_file_path(file_path, percentages=(0.5,))
     if not frames:
         return []
 
