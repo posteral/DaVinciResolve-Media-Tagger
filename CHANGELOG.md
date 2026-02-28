@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-02-28
+
+### Changed
+
+- AI keyword suggestions now receive the full project keyword catalog. The LLM
+  is instructed to prefer exact catalog wording when relevant, so suggestions
+  align with existing terminology rather than inventing synonyms.
+- `/api/clip/ai-suggestion` now accepts POST with a JSON body (GET still works
+  for backward compatibility). The catalog is sent in the body to avoid URL
+  length limits.
+
+## [0.16.3] - 2026-02-28
+
+### Changed
+
+- AI keyword suggestion count raised from 3 to 5.
+
 ## [0.16.2] - 2026-02-28
 
 ### Fixed
