@@ -63,7 +63,23 @@
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 12px;
+      position: relative;
     }
+
+    .identity-card-split-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      border: 1px solid #555;
+      border-radius: 3px;
+      color: #888;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+    .identity-card-split-btn:hover { border-color: #888; color: #ccc; }
 
     .identity-card-faces {
       display: flex;
@@ -1094,6 +1110,82 @@
       }
     }
 
+    // Build a single-detection identity card (used for ungrouped / split cards).
+    function _buildSingleIdentityCard(det, datalistId, inheritedName) {
+      const card = document.createElement('div');
+      card.className = 'identity-card';
+      card.dataset.faceTokens = det.face_token;
+      card.dataset.identityId = det.identity_id || '';
+      card.dataset.isNew = det.identity_id ? 'false' : 'true';
+
+      // Single face crop
+      const faceStrip = document.createElement('div');
+      faceStrip.className = 'identity-card-faces';
+      const img = document.createElement('img');
+      img.className = 'identity-card-face';
+      img.alt = 'Face';
+      img.src = '/api/clip/face-crop?token=' + encodeURIComponent(det.face_token);
+      img.onerror = function() {
+        const ph = document.createElement('div');
+        ph.className = 'identity-card-face-placeholder';
+        ph.textContent = '👤';
+        this.replaceWith(ph);
+      };
+      faceStrip.appendChild(img);
+      card.appendChild(faceStrip);
+
+      // Status badge
+      const badge = document.createElement('span');
+      badge.className = 'identity-status ' + (
+        det.status === 'known' ? 'known' :
+        det.status === 'low_confidence' ? 'low' : 'unknown'
+      );
+      badge.textContent = det.status === 'low_confidence' ? 'low confidence' : det.status;
+      card.appendChild(badge);
+
+      // Assign input
+      const assignWrap = document.createElement('div');
+      assignWrap.className = 'identity-assign-wrap';
+      const assignInput = document.createElement('input');
+      assignInput.type = 'text';
+      assignInput.className = 'identity-assign-input';
+      assignInput.placeholder = 'Who is this?';
+      assignInput.setAttribute('list', datalistId);
+      // Prefer inherited name (from the group at split time), then the detection's own name.
+      assignInput.value = inheritedName || det.display_name || '';
+      assignInput.addEventListener('input', () => {
+        const match = _identityRegistry.find(
+          id => id.display_name.toLowerCase() === assignInput.value.trim().toLowerCase()
+        );
+        if (match) {
+          card.dataset.identityId = match.identity_id;
+          card.dataset.isNew = 'false';
+        } else {
+          card.dataset.identityId = '';
+          card.dataset.isNew = 'true';
+        }
+        const applyBtn = document.getElementById('identity-apply-btn');
+        if (applyBtn) {
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Apply identities to keywords';
+        }
+      });
+      assignWrap.appendChild(assignInput);
+      card.appendChild(assignWrap);
+
+      // Add as keyword checkbox
+      const kwLabel = document.createElement('label');
+      kwLabel.className = 'identity-add-kw';
+      const kwCheck = document.createElement('input');
+      kwCheck.type = 'checkbox';
+      kwCheck.checked = true;
+      kwLabel.appendChild(kwCheck);
+      kwLabel.appendChild(document.createTextNode('Add as keyword'));
+      card.appendChild(kwLabel);
+
+      return card;
+    }
+
     function renderIdentityCards(detections) {
       const panel  = document.getElementById('identity-panel');
       const cards  = document.getElementById('identity-cards');
@@ -1126,7 +1218,7 @@
       const groups = [];
       const groupById = {};
       detections.forEach(det => {
-        const key = det.identity_id || det.face_token; // unknowns keyed by token
+        const key = det.identity_id || det.face_token;
         if (groupById[key]) {
           groupById[key].detections.push(det);
         } else {
@@ -1137,15 +1229,40 @@
       });
 
       groups.forEach(group => {
-        const rep = group.detections[0]; // representative detection for name/status
+        const rep = group.detections[0];
+
+        // Single-detection groups: just use the single card builder directly.
+        if (group.detections.length === 1) {
+          cards.appendChild(_buildSingleIdentityCard(rep, datalistId, null));
+          return;
+        }
+
+        // Multi-detection grouped card
         const card = document.createElement('div');
         card.className = 'identity-card';
-        // Store all face tokens (comma-separated) and representative identity metadata
         card.dataset.faceTokens = group.detections.map(d => d.face_token).join(',');
         card.dataset.identityId = rep.identity_id || '';
         card.dataset.isNew = rep.identity_id ? 'false' : 'true';
 
-        // Thumbnail strip — one image per detection in the group
+        // Split button — only shown when there are multiple detections
+        const splitBtn = document.createElement('button');
+        splitBtn.className = 'identity-card-split-btn';
+        splitBtn.textContent = 'Split';
+        splitBtn.title = 'Ungroup — split into individual cards for correction';
+        splitBtn.addEventListener('click', () => {
+          // Read the current name from the group's input before splitting
+          const currentName = card.querySelector('.identity-assign-input')
+            ? card.querySelector('.identity-assign-input').value.trim()
+            : '';
+          const fragment = document.createDocumentFragment();
+          group.detections.forEach(det => {
+            fragment.appendChild(_buildSingleIdentityCard(det, datalistId, currentName));
+          });
+          card.replaceWith(fragment);
+        });
+        card.appendChild(splitBtn);
+
+        // Thumbnail strip
         const faceStrip = document.createElement('div');
         faceStrip.className = 'identity-card-faces';
         group.detections.forEach(det => {
@@ -1163,7 +1280,7 @@
         });
         card.appendChild(faceStrip);
 
-        // Status badge (use best status across group)
+        // Status badge (best status across group)
         const bestStatus = group.detections.some(d => d.status === 'known') ? 'known'
           : group.detections.some(d => d.status === 'low_confidence') ? 'low_confidence'
           : 'unknown';
