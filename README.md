@@ -4,8 +4,8 @@ Python agent for reading and writing keyword metadata on clips in DaVinci Resolv
 
 ## Current Status
 
-- `v0.4` is the current release.
-- Browser-based UI (`app.py`) for reading and editing keywords on the selected clip, with a thumbnail of the clip shown above the clip name.
+- `v0.6` is the current release.
+- Browser-based UI (`app.py`) for reading, editing, and receiving keyword suggestions for the selected clip.
 
 ## Requirements
 
@@ -41,6 +41,8 @@ Then open `http://localhost:5000` in your browser.
 - Each keyword tag has a × button; clicking it opens an inline confirmation modal.
 - **Remove** deletes the keyword from the list; a **Save** button then appears.
 - **Save** writes the updated keyword list back to Resolve, with a brief "Saved" confirmation on success.
+- **Prev / Next** buttons navigate between clips in the current Media Pool folder, ordered by Date Created.
+- **Suggested** keywords appear as purple buttons below the keyword list. Up to 3 keywords are recommended based on frequency across the 10 temporally closest clips in the same folder. Clicking a suggestion adds it to the pending list; Save writes it to Resolve.
 
 ## API
 
@@ -51,6 +53,12 @@ Then open `http://localhost:5000` in your browser.
 ```
 
 `GET /api/clip/thumbnail` — returns a PNG thumbnail of the selected clip (`204` if unavailable).
+
+`GET /api/clip/suggestions` — returns up to 3 keyword suggestions based on neighbouring clips:
+
+```json
+{"suggestions": ["city", "night", "interview"]}
+```
 
 `POST /api/clip/keywords` — writes an updated keyword list to the selected clip:
 
