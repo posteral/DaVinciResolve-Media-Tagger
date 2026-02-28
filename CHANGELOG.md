@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-02-28
+
+### Added
+
+- Filmstrip panel displayed to the left of the keywords card, showing 5 frames
+  sampled at 10/30/50/70/90% of the clip duration. Frames load progressively
+  via parallel fetch calls. The strip is styled as a physical film strip with
+  a dark background and sprocket holes on both edges. Hovering a frame zooms
+  it 2.5× to the left so it does not cover the keywords UI. Hidden when no
+  proxy is available.
+- New `GET /api/clip/filmstrip-frame?path=&index=` endpoint returning a single
+  PNG frame by index with no Resolve IPC.
+
 ## [0.15.2] - 2026-02-28
 
 ### Added
