@@ -142,6 +142,7 @@ _DATE_FORMATS = (
     "%m/%d/%Y %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
     "%d/%m/%Y %H:%M:%S",
+    "%a %b %d %Y %H:%M:%S",
 )
 
 

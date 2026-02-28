@@ -243,6 +243,16 @@ class TestSuggestKeywords(unittest.TestCase):
         resolve = self._make_resolve(clips, "cur")
         self.assertEqual(resolve_api.suggest_keywords(resolve)[0], [])
 
+    def test_parses_weekday_month_day_year_format(self):
+        # Format returned by some Resolve versions: "Sat Sep 28 2024 19:35:21"
+        clips = [
+            self._make_clip("cur",     [],           "Sat Sep 28 2024 10:00:00"),
+            self._make_clip("sameday", ["edinburgh"], "Sat Sep 28 2024 19:35:21"),
+        ]
+        resolve = self._make_resolve(clips, "cur")
+        suggestions = resolve_api.suggest_keywords(resolve)[0]
+        self.assertIn("edinburgh", suggestions)
+
     def test_excludes_clips_from_different_days(self):
         clips = [
             self._make_clip("yesterday", ["other_day"], "01/01/2024 23:00:00"),
