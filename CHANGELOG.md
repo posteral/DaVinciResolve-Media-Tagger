@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-28
+
+### Added
+
+- Keyboard shortcuts: **← / ↑** previous clip, **→ / ↓** next clip,
+  **s** save. Suppressed when focus is inside a text input. Body
+  regains focus automatically after every navigate/refresh so shortcuts
+  work immediately without clicking the page.
+
+### Fixed
+
+- Autocomplete dropdown no longer shows bullet points.
+- Autocomplete pre-selects the first item; Enter commits it instantly.
+- Autocomplete retries the catalog fetch until data arrives — previously
+  an empty response (background build not yet done) permanently disabled
+  the dropdown for the session.
+- Folder cache is invalidated and rebuilt in the background after every
+  Save, so proximity suggestions stay accurate without blocking the next
+  navigate press.
+- Per-clip date and keyword data cached in `_folder_cache` — eliminates
+  34+ `GetMetadata` IPC calls per navigate press on large same-day
+  folders; cache is shared between `navigate_clip` and
+  `suggest_keywords`.
+- `/api/clip` (Refresh) now also warms the folder cache and returns
+  `file_path` + `suggestions` in the response, matching the navigate
+  response shape.
+
 ## [0.8.0] - 2026-02-28
 
 ### Added
