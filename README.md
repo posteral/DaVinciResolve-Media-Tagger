@@ -1,6 +1,6 @@
 # DaVinci Resolve AI Keywording Agent
 
-Python agent for reading and writing keyword metadata on clips in DaVinci Resolve, with an AI-assisted pipeline.
+Browser-based tool for reading, writing, and AI-assisted keywording of clips in DaVinci Resolve.
 
 ## Current Status
 
