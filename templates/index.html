@@ -1166,6 +1166,12 @@
             card.dataset.identityId = '';
             card.dataset.isNew = 'true';
           }
+          // Re-enable Apply whenever the user edits any name
+          const applyBtn = document.getElementById('identity-apply-btn');
+          if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.textContent = 'Apply identities to keywords';
+          }
         });
         assignWrap.appendChild(assignInput);
         card.appendChild(assignWrap);
