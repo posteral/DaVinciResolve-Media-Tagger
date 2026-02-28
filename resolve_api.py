@@ -234,8 +234,14 @@ def suggest_keywords(resolve: Any) -> tuple[list[str], dict]:
     current_date_key = _clip_date_key(current_item)[0]  # datetime or datetime.max
 
     if current_date_key == datetime.max:
+        raw_date = ""
+        try:
+            raw_date = current_item.GetClipProperty("Date Created") or ""
+        except Exception:
+            pass
         return [], {"reason": "current clip has no parseable date",
-                    "clip": current_item.GetName()}
+                    "clip": current_item.GetName(),
+                    "raw_date": repr(raw_date)}
 
     neighbour_dates = {c.GetName(): str(_clip_date_key(c)[0].date())
                        for c in clips if c.GetMediaId() != current_id}
