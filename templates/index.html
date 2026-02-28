@@ -435,7 +435,7 @@
           <div class="label">Suggested</div>
           <div id="suggestions-container"></div>
         </div>
-        <div id="ai-suggestion-section" style="margin-top:16px">
+        <div id="ai-suggestion-section" style="display:none;margin-top:16px">
           <div class="label">AI Suggested <span class="spinner" id="ai-spinner"></span></div>
           <div id="ai-suggestion-container"></div>
         </div>
@@ -727,6 +727,8 @@
 
     async function loadAiSuggestion(filePath) {
       const aiSpinner = document.getElementById('ai-spinner');
+      const aiSection = document.getElementById('ai-suggestion-section');
+      if (aiSection) aiSection.style.display = 'block';
       if (aiSpinner) aiSpinner.style.display = 'inline-block';
       try {
         let url = '/api/clip/ai-suggestion';
