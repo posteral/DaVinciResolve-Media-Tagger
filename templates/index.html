@@ -19,6 +19,14 @@
       padding: 48px 16px;
     }
 
+    .layout-row {
+      display: flex;
+      gap: 20px;
+      align-items: flex-start;
+      width: 100%;
+      max-width: 1080px;
+    }
+
     .card {
       background: #252525;
       border: 1px solid #333;
@@ -26,6 +34,136 @@
       padding: 32px;
       width: 100%;
       max-width: 520px;
+      flex-shrink: 0;
+    }
+
+    /* ── Identity panel ── */
+    #identity-panel {
+      display: none;
+      background: #252525;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 24px;
+      width: 300px;
+      flex-shrink: 0;
+    }
+
+    #identity-panel h2 {
+      margin: 0 0 16px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #888;
+    }
+
+    .identity-card {
+      background: #2e2e2e;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .identity-card-face {
+      width: 64px;
+      height: 64px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #1a1a1a;
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .identity-card-face-placeholder {
+      width: 64px;
+      height: 64px;
+      border-radius: 6px;
+      background: #333;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+      font-size: 1.6rem;
+      color: #555;
+    }
+
+    .identity-status {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-radius: 3px;
+      padding: 2px 6px;
+      margin-bottom: 8px;
+    }
+
+    .identity-status.known     { background: #1a3a1a; color: #5db87a; }
+    .identity-status.low       { background: #3a2e10; color: #c9a84c; }
+    .identity-status.unknown   { background: #2e2e2e; color: #777; border: 1px solid #444; }
+
+    .identity-assign-wrap {
+      margin-bottom: 8px;
+    }
+
+    .identity-assign-input {
+      width: 100%;
+      background: #1e1e1e;
+      color: #e8e8e8;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 0.8rem;
+      font-family: inherit;
+    }
+
+    .identity-assign-input:focus {
+      outline: none;
+      border-color: #3a7bd5;
+    }
+
+    .identity-add-kw {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: #aaa;
+      cursor: pointer;
+    }
+
+    .identity-add-kw input[type="checkbox"] {
+      accent-color: #3a7bd5;
+    }
+
+    #identity-none {
+      font-size: 0.85rem;
+      color: #555;
+      font-style: italic;
+    }
+
+    #identity-apply-btn {
+      width: 100%;
+      margin-top: 8px;
+      background: #3a5a9a;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 9px 16px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: none;
+    }
+
+    #identity-apply-btn:hover:not(:disabled) { background: #2e4a8a; }
+    #identity-apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #identity-spinner {
+      display: inline-block;
+      vertical-align: middle;
+      margin-left: 6px;
     }
 
     h1 {
@@ -377,6 +515,7 @@
   </style>
 </head>
 <body tabindex="-1">
+  <div class="layout-row">
   <div class="card">
     <h1>Clip Keywords</h1>
 
@@ -407,6 +546,16 @@
     </div>
   </div>
 
+  <!-- Identity panel -->
+  <div id="identity-panel">
+    <h2>Detected Identities <span class="spinner" id="identity-spinner"></span></h2>
+    <div id="identity-cards"></div>
+    <p id="identity-none" style="display:none">No faces detected in this clip.</p>
+    <button id="identity-apply-btn" onclick="applyIdentities()">Apply identities to keywords</button>
+  </div>
+
+  </div><!-- /.layout-row -->
+
   <!-- Inline confirmation modal -->
   <div id="modal" role="dialog" aria-modal="true">
     <div class="modal-backdrop" onclick="closeModal()"></div>
@@ -431,6 +580,8 @@
       const aiContainer = document.getElementById('ai-suggestion-container');
       if (aiSection) aiSection.style.display = 'none';
       if (aiContainer) aiContainer.innerHTML = '';
+      // Reset identity panel
+      _resetIdentityPanel();
       area.innerHTML = `
         <div class="thumbnail-wrap">
           <img id="clip-thumbnail" alt="Clip thumbnail" style="display:none">
@@ -463,6 +614,7 @@
       }
       if (!data.no_proxy && data.file_path) {
         loadAiSuggestion(data.file_path);
+        loadIdentities(data.file_path);
       }
       initKeywordInput();
       document.getElementById('prev-btn').style.display = 'inline-flex';
@@ -883,6 +1035,225 @@
       input.addEventListener('focus', () => {
         if (input.value) renderList(getMatches(input.value));
       });
+    }
+
+    // ── Identity recognition ──────────────────────────────────────────────────
+
+    let _identityRegistry = [];  // cached from GET /api/identities
+
+    function _resetIdentityPanel() {
+      const panel = document.getElementById('identity-panel');
+      const cards = document.getElementById('identity-cards');
+      const none  = document.getElementById('identity-none');
+      const apply = document.getElementById('identity-apply-btn');
+      const spinner = document.getElementById('identity-spinner');
+      if (panel)   panel.style.display = 'none';
+      if (cards)   cards.innerHTML = '';
+      if (none)    none.style.display = 'none';
+      if (apply)   apply.style.display = 'none';
+      if (spinner) spinner.style.display = 'none';
+    }
+
+    async function loadIdentities(filePath) {
+      const panel   = document.getElementById('identity-panel');
+      const spinner = document.getElementById('identity-spinner');
+      if (!panel) return;
+
+      panel.style.display = 'block';
+      if (spinner) spinner.style.display = 'inline-block';
+
+      // Pre-fetch the identity registry for the assign datalist
+      try {
+        const regRes = await fetch('/api/identities');
+        if (regRes.ok) {
+          const regData = await regRes.json();
+          _identityRegistry = regData.identities || [];
+        }
+      } catch (_) {}
+
+      try {
+        const res = await fetch('/api/clip/detect-identities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: filePath }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderIdentityCards(data.detections || []);
+      } catch (_) {
+        // best-effort — fail silently, panel stays hidden
+        panel.style.display = 'none';
+      } finally {
+        if (spinner) spinner.style.display = 'none';
+      }
+    }
+
+    function renderIdentityCards(detections) {
+      const panel  = document.getElementById('identity-panel');
+      const cards  = document.getElementById('identity-cards');
+      const none   = document.getElementById('identity-none');
+      const apply  = document.getElementById('identity-apply-btn');
+      if (!panel || !cards) return;
+
+      if (detections.length === 0) {
+        none.style.display = 'block';
+        apply.style.display = 'none';
+        return;
+      }
+
+      // Build datalist of known names for the assign input
+      const datalistId = 'identity-names-list';
+      let datalist = document.getElementById(datalistId);
+      if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = datalistId;
+        document.body.appendChild(datalist);
+      }
+      datalist.innerHTML = '';
+      _identityRegistry.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id.display_name;
+        datalist.appendChild(opt);
+      });
+
+      detections.forEach(det => {
+        const card = document.createElement('div');
+        card.className = 'identity-card';
+        card.dataset.faceToken = det.face_token;
+        card.dataset.identityId = det.identity_id || '';
+        card.dataset.isNew = det.identity_id ? 'false' : 'true';
+
+        // Face crop image
+        const img = document.createElement('img');
+        img.className = 'identity-card-face';
+        img.alt = 'Face';
+        img.src = '/api/clip/face-crop?token=' + encodeURIComponent(det.face_token);
+        img.onerror = function() {
+          const ph = document.createElement('div');
+          ph.className = 'identity-card-face-placeholder';
+          ph.textContent = '👤';
+          this.replaceWith(ph);
+        };
+        card.appendChild(img);
+
+        // Status badge
+        const badge = document.createElement('span');
+        badge.className = 'identity-status ' + (
+          det.status === 'known' ? 'known' :
+          det.status === 'low_confidence' ? 'low' : 'unknown'
+        );
+        badge.textContent = det.status === 'low_confidence' ? 'low confidence' : det.status;
+        card.appendChild(badge);
+
+        // Assign input
+        const assignWrap = document.createElement('div');
+        assignWrap.className = 'identity-assign-wrap';
+        const assignInput = document.createElement('input');
+        assignInput.type = 'text';
+        assignInput.className = 'identity-assign-input';
+        assignInput.placeholder = 'Who is this?';
+        assignInput.setAttribute('list', datalistId);
+        if (det.display_name) assignInput.value = det.display_name;
+        assignInput.addEventListener('input', () => {
+          // If user changes the pre-filled name, mark as new identity
+          const match = _identityRegistry.find(
+            id => id.display_name.toLowerCase() === assignInput.value.trim().toLowerCase()
+          );
+          if (match) {
+            card.dataset.identityId = match.identity_id;
+            card.dataset.isNew = 'false';
+          } else {
+            card.dataset.identityId = '';
+            card.dataset.isNew = 'true';
+          }
+          // Re-enable Apply whenever the user edits any name
+          const applyBtn = document.getElementById('identity-apply-btn');
+          if (applyBtn) {
+            applyBtn.disabled = false;
+            applyBtn.textContent = 'Apply identities to keywords';
+          }
+        });
+        assignWrap.appendChild(assignInput);
+        card.appendChild(assignWrap);
+
+        // Add as keyword checkbox
+        const kwLabel = document.createElement('label');
+        kwLabel.className = 'identity-add-kw';
+        const kwCheck = document.createElement('input');
+        kwCheck.type = 'checkbox';
+        kwCheck.checked = true;
+        kwLabel.appendChild(kwCheck);
+        kwLabel.appendChild(document.createTextNode('Add as keyword'));
+        card.appendChild(kwLabel);
+
+        cards.appendChild(card);
+      });
+
+      apply.style.display = 'block';
+    }
+
+    async function applyIdentities() {
+      const applyBtn = document.getElementById('identity-apply-btn');
+      const cards = document.querySelectorAll('.identity-card');
+      if (!cards.length) return;
+
+      const assignments = [];
+      cards.forEach(card => {
+        const input = card.querySelector('.identity-assign-input');
+        const checkbox = card.querySelector('input[type="checkbox"]');
+        const displayName = input ? input.value.trim() : '';
+        if (!displayName) return;
+
+        assignments.push({
+          face_token: card.dataset.faceToken,
+          display_name: displayName,
+          keyword_string: displayName,
+          identity_id: card.dataset.identityId || null,
+          is_new_identity: card.dataset.isNew === 'true',
+          add_as_keyword: checkbox ? checkbox.checked : true,
+        });
+      });
+
+      if (!assignments.length) return;
+
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Applying…';
+
+      try {
+        const res = await fetch('/api/identities/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignments }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const added = (data.keywords_added || []).filter(
+          kw => !currentKeywords.map(k => k.toLowerCase()).includes(kw.toLowerCase())
+        );
+        if (added.length) {
+          currentKeywords.push(...added);
+          renderKeywords();
+          showSave();
+        }
+
+        applyBtn.textContent = 'Applied ✓';
+        applyBtn.disabled = true;
+
+        // Update status badges to "known" for all cards that had a name assigned
+        cards.forEach(card => {
+          const input = card.querySelector('.identity-assign-input');
+          if (!input || !input.value.trim()) return;
+          const badge = card.querySelector('.identity-status');
+          if (badge) {
+            badge.className = 'identity-status known';
+            badge.textContent = 'known';
+          }
+        });
+      } catch (_) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply identities to keywords';
+      }
     }
 
     // ── Global keyboard shortcuts ─────────────────────────────────────────────

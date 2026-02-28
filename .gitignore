@@ -22,3 +22,8 @@ build/
 
 # macOS
 .DS_Store
+
+# Identity recognition runtime data
+identity_registry.json
+identity_registry.json.bak
+faces/
