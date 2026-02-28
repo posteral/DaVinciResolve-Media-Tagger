@@ -79,6 +79,31 @@ def clip_suggestions():
     return jsonify({"suggestions": suggestions})
 
 
+@app.route("/api/clip/ai-suggestion")
+def clip_ai_suggestion():
+    try:
+        with _resolve_lock:
+            resolve = _get_resolve()
+            item = resolve_api.get_selected_media_pool_item(resolve)
+            if item is None:
+                return jsonify({"suggestion": None})
+            file_path = (
+                item.GetClipProperty("Proxy Media Path")
+                or item.GetClipProperty("File Path")
+                or ""
+            )
+            existing_keywords = resolve_api.get_keywords(item)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    if not file_path:
+        return jsonify({"suggestion": None})
+
+    suggestion = resolve_api.ai_suggest_keyword(file_path, existing_keywords=existing_keywords)
+    print(f"[ai-suggestion] file={file_path!r} existing={existing_keywords!r} suggestion={suggestion!r}")
+    return jsonify({"suggestion": suggestion})
+
+
 @app.route("/api/clip/navigate", methods=["POST"])
 def navigate_clip():
     body = request.get_json(silent=True) or {}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import os
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -253,6 +254,120 @@ def suggest_keywords(resolve: Any, n_neighbours: int = 10) -> list[str]:
 
     ranked = sorted(counts.keys(), key=lambda k: -counts[k])
     return [first_seen[k] for k in ranked[:3]]
+
+
+def _normalise_ai_keyword(
+    text: str, existing_keywords: list[str] | None = None
+) -> str:
+    """Apply keyword casing conventions to a VLM response.
+
+    Strategy:
+    1. Build a lookup of known proper-noun words from existing_keywords
+       (e.g. 'New York City' → {'new': 'New', 'york': 'York', 'city': 'City'}).
+    2. Lowercase the entire suggestion.
+    3. Restore capitalisation word-by-word from the lookup.
+    4. For any word not in the lookup, keep lowercase — we default to
+       generic unless we have evidence of proper-noun status.
+    """
+    # Words that are too generic to restore even when they appear capitalised
+    # inside a proper noun (e.g. "City" in "New York City", "Street" in
+    # "Wall Street").
+    _GENERIC = {
+        "a", "an", "the", "and", "or", "of", "in", "on", "at", "to",
+        "with", "by", "for", "from",
+        "city", "town", "state", "county", "district", "region",
+        "street", "road", "avenue", "boulevard", "lane", "way",
+        "park", "garden", "square", "place",
+        "lake", "river", "bay", "sea", "ocean", "island", "mountain",
+        "north", "south", "east", "west", "central",
+        "upper", "lower", "old", "new", "great", "little", "big",
+        "national", "international", "royal",
+    }
+
+    # Build lookup: lowercase word → canonical capitalised form.
+    # Single-word keywords (e.g. "Maria", "Portugal") contribute directly.
+    # Multi-word keywords (e.g. "New York City") contribute only as a full
+    # phrase, not word-by-word — this prevents "York" from matching "york"
+    # in an unrelated context.
+    known_words: dict[str, str] = {}   # from single-word keywords only
+    known_phrases: dict[str, str] = {} # from multi-word keywords
+
+    for kw in (existing_keywords or []):
+        if not kw or not kw[0].isupper():
+            continue
+        words_in_kw = kw.split()
+        if len(words_in_kw) == 1:
+            w = words_in_kw[0]
+            if w.lower() not in _GENERIC:
+                known_words[w.lower()] = w
+        else:
+            known_phrases[kw.lower()] = kw
+
+    lower_text = text.strip().lower()
+    if not lower_text:
+        return text
+
+    # Apply multi-word phrase substitutions first (longest first).
+    result = lower_text
+    for phrase_lower, phrase_orig in sorted(known_phrases.items(), key=lambda x: -len(x[0])):
+        result = result.replace(phrase_lower, phrase_orig)
+
+    # Apply single-word substitutions on remaining lowercase tokens.
+    return " ".join(known_words.get(w, w) for w in result.split())
+
+
+def ai_suggest_keyword(
+    file_path: str,
+    model: str = "llava",
+    existing_keywords: list[str] | None = None,
+) -> str | None:
+    """Return a single AI-generated keyword for a clip by sending its thumbnail
+    to a locally running Ollama VLM. Returns None if Ollama is unreachable."""
+    import base64
+    import json
+
+    png = thumbnail_from_file_path(file_path)
+    if not png:
+        return None
+
+    if existing_keywords:
+        kw_context = (
+            f"This clip already has these keywords: {', '.join(existing_keywords)}. "
+            "Suggest one additional keyword not already in that list. "
+        )
+    else:
+        kw_context = ""
+
+    payload = json.dumps({
+        "model": model,
+        "prompt": (
+            f"{kw_context}"
+            "Describe the main subject of this image as a media archive keyword phrase. "
+            "Use 1-4 words. "
+            "If the subject is a specific named place, landmark, or person use Title Case. "
+            "If the subject is a generic object, animal, activity, or natural feature use lowercase. "
+            "Examples: 'sunset', 'rolling hills', 'prayer flags', 'Eiffel Tower', 'Trevi Fountain'. "
+            "Reply with only the keyword phrase, no punctuation, no explanation."
+        ),
+        "images": [base64.b64encode(png).decode()],
+        "stream": False,
+    }).encode()
+
+    try:
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            result = json.loads(resp.read())
+        text = result.get("response", "").strip()
+        if not text:
+            return None
+        return _normalise_ai_keyword(text, existing_keywords)
+    except Exception:
+        return None
 
 
 def _ffmpeg_path() -> str:

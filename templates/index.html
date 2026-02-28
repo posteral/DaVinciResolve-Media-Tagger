@@ -186,6 +186,19 @@
     .suggestion-btn:hover:not(:disabled) { background: #4e3a78; }
     .suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .ai-suggestion-btn {
+      background: #0f3333;
+      color: #7dd4d4;
+      border: 1px solid #1a5c5c;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .ai-suggestion-btn:hover:not(:disabled) { background: #1a4a4a; }
+    .ai-suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
     .thumbnail-wrap {
       margin-bottom: 20px;
       background: #1a1a1a;
@@ -347,10 +360,15 @@
           <div class="label">Suggested</div>
           <div id="suggestions-container"></div>
         </div>
+        <div id="ai-suggestion-section" style="display:none;margin-top:16px">
+          <div class="label">AI Suggested</div>
+          <div id="ai-suggestion-container"></div>
+        </div>
       `;
       renderKeywords();
       loadThumbnail();
       loadSuggestions();
+      loadAiSuggestion();
       document.getElementById('prev-btn').style.display = 'inline-flex';
       document.getElementById('next-btn').style.display = 'inline-flex';
     }
@@ -573,6 +591,28 @@
         section.style.display = 'block';
       } catch (_) {
         // suggestions are best-effort — fail silently
+      }
+    }
+
+    async function loadAiSuggestion() {
+      const section = document.getElementById('ai-suggestion-section');
+      const container = document.getElementById('ai-suggestion-container');
+      if (!section || !container) return;
+
+      try {
+        const res = await fetch('/api/clip/ai-suggestion');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.suggestion) return;
+
+        const btn = document.createElement('button');
+        btn.className = 'ai-suggestion-btn';
+        btn.textContent = '+ ' + data.suggestion;
+        btn.addEventListener('click', () => addSuggestion(data.suggestion, btn));
+        container.appendChild(btn);
+        section.style.display = 'block';
+      } catch (_) {
+        // best-effort — fail silently
       }
     }
 
