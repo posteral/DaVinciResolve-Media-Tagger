@@ -179,14 +179,15 @@ class TestSuggestKeywords(unittest.TestCase):
         return resolve
 
     def test_returns_top_5_by_proximity_score(self):
+        # Each keyword is scored by its NEAREST carrying clip (max 1/d, not sum).
         # Layout (sorted by date, cur at index 2):
-        #   n1(d=2): alpha, beta   weight=0.5
-        #   n2(d=1): alpha, beta   weight=1.0
+        #   n1(d=2): alpha, beta   best=0.5
+        #   n2(d=1): alpha, beta   best=1.0  ← raises alpha and beta to 1.0
         #   cur(d=0): []
-        #   n3(d=1): alpha, beta, gamma  weight=1.0
-        #   n4(d=2): alpha, delta  weight=0.5
-        #   n5(d=3): alpha         weight=0.333
-        # Scores: alpha=3.333, beta=2.5, gamma=1.0, delta=0.5
+        #   n3(d=1): alpha, beta, gamma  best=1.0  ← gamma=1.0
+        #   n4(d=2): alpha, delta  best=0.5  ← delta=0.5 (no closer clip carries it)
+        #   n5(d=3): alpha         best=0.333 (alpha already 1.0, no change)
+        # Best scores: alpha=1.0, beta=1.0, gamma=1.0, delta=0.5
         clips = [
             self._make_clip("n1", ["alpha", "beta"], "01/01/2024 10:00:00"),
             self._make_clip("n2", ["alpha", "beta"], "01/01/2024 11:00:00"),
@@ -197,16 +198,19 @@ class TestSuggestKeywords(unittest.TestCase):
         ]
         resolve = self._make_resolve(clips, "cur")
         suggestions = resolve_api.suggest_keywords(resolve)[0]
-        self.assertEqual(suggestions[0], "alpha")  # score=3.333
-        self.assertEqual(suggestions[1], "beta")   # score=2.5
-        self.assertEqual(suggestions[2], "gamma")  # score=1.0
-        self.assertEqual(suggestions[3], "delta")  # score=0.5
-        self.assertEqual(len(suggestions), 4)       # only 4 unique candidates
+        # alpha, beta, gamma all tie at 1.0; delta at 0.5 — all 4 must appear
+        self.assertIn("alpha", suggestions)
+        self.assertIn("beta", suggestions)
+        self.assertIn("gamma", suggestions)
+        self.assertIn("delta", suggestions)
+        self.assertEqual(len(suggestions), 4)  # only 4 unique candidates
+        # delta must rank below the distance-1 keywords
+        self.assertEqual(suggestions[-1], "delta")
 
     def test_proximity_prefers_close_neighbours(self):
         # "near" appears only on adjacent clips; "far" appears on many but distant ones.
-        # near: clips at distance 1 each → score = 1.0 + 1.0 = 2.0
-        # far:  clips at distance 4 each → score = 0.25 + 0.25 = 0.5
+        # near: nearest clip at distance 1 → best_score = 1.0
+        # far:  nearest clip at distance 4 → best_score = 0.25
         clips = [
             self._make_clip("f1", ["far"], "01/01/2024 07:00:00"),
             self._make_clip("f2", ["far"], "01/01/2024 08:00:00"),

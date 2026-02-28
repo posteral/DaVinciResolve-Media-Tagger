@@ -305,14 +305,18 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     if current_index is None:
         return [], {"reason": "current clip not found in folder"}
 
-    # Only consider clips within a window around the current clip.
-    # This prevents keywords that appear on hundreds of distant clips from
-    # accumulating enough 1/d weight to drown out immediately-adjacent clips.
+    # Score each keyword by the distance to its NEAREST carrying clip (not the
+    # sum across all clips). This prevents high-frequency keywords that appear
+    # on many clips in the window from drowning out unique keywords that appear
+    # only on the immediately-adjacent clip.
+    # A keyword on the clip at distance 1 scores 1.0 regardless of how many
+    # other clips further away also carry it.
     WINDOW = 50
     lo = max(0, current_index - WINDOW)
     hi = min(len(clips), current_index + WINDOW + 1)
 
-    scores: dict[str, float] = {}
+    # best_score[key] = 1/d of the nearest clip that carries this keyword
+    best_score: dict[str, float] = {}
     first_seen: dict[str, str] = {}
     neighbour_count = 0
     for i in range(lo, hi):
@@ -328,11 +332,12 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
         for kw in keywords_by_id.get(cid, []):
             key = kw.lower()
             if key not in current_kws:
-                scores[key] = scores.get(key, 0.0) + weight
+                if weight > best_score.get(key, 0.0):
+                    best_score[key] = weight
                 if key not in first_seen:
                     first_seen[key] = kw
 
-    ranked = sorted(scores.keys(), key=lambda k: -scores[k])
+    ranked = sorted(best_score.keys(), key=lambda k: -best_score[k])
     suggestions = [first_seen[k] for k in ranked[:5]]
 
     debug = {

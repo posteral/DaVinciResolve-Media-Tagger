@@ -1065,7 +1065,12 @@
       if (aiSection) aiSection.style.display = 'block';
       if (aiSpinner) aiSpinner.style.display = 'inline-block';
       try {
-        const catalog = await _loadCatalog();
+        // Poll for the catalog up to 5 times (server builds it in background).
+        let catalog = await _loadCatalog();
+        for (let attempt = 0; attempt < 4 && (!catalog || catalog.length === 0); attempt++) {
+          await new Promise(r => setTimeout(r, 1000));
+          catalog = await _loadCatalog();
+        }
         const body = { path: filePath };
         if (currentKeywords.length) body.keywords = currentKeywords;
         if (proximitySuggestions.length) body.suggestions = proximitySuggestions;
