@@ -303,6 +303,15 @@ class TestAiSuggestKeyword(unittest.TestCase):
             result = resolve_api.ai_suggest_keyword("/fake/clip.mov")
         self.assertIsNone(result)
 
+    def test_returns_none_when_suggestion_duplicates_existing(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
+             patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("Imagination Station")):
+            result = resolve_api.ai_suggest_keyword(
+                "/fake/clip.mov",
+                existing_keywords=["United States", "Imagination Station", "Ohio"],
+            )
+        self.assertIsNone(result)
+
     def test_returns_none_when_response_is_empty(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNG"), \
              patch("resolve_api.urllib.request.urlopen", return_value=self._make_urlopen("")):

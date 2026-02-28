@@ -365,7 +365,11 @@ def ai_suggest_keyword(
         text = result.get("response", "").strip()
         if not text:
             return None
-        return _normalise_ai_keyword(text, existing_keywords)
+        normalised = _normalise_ai_keyword(text, existing_keywords)
+        existing_lower = {kw.lower() for kw in (existing_keywords or [])}
+        if normalised.lower() in existing_lower:
+            return None
+        return normalised
     except Exception:
         return None
 
