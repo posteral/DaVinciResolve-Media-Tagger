@@ -120,16 +120,16 @@ def get_keywords(media_pool_item: Any) -> list[str]:
             if "keyword" in str(key).lower():
                 keywords = _normalize_keywords(value)
                 if keywords:
-                    return keywords
+                    return sorted(keywords, key=str.casefold)
 
     for key in ("Keywords", "keywords", "Keyword", "keyword"):
         value = media_pool_item.GetMetadata(key)
         keywords = _normalize_keywords(value)
         if keywords:
-            return keywords
+            return sorted(keywords, key=str.casefold)
 
     clip_property = media_pool_item.GetClipProperty("Keywords")
-    return _normalize_keywords(clip_property)
+    return sorted(_normalize_keywords(clip_property), key=str.casefold)
 
 
 def set_keywords(media_pool_item: Any, keywords: list[str]) -> bool:
