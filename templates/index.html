@@ -408,6 +408,12 @@
       gap: 4px;
     }
 
+    .keyword-list li.pinned {
+      background: #0e2a4a;
+      border-color: #1e5a9a;
+      color: #7ab8f5;
+    }
+
     .kw-remove {
       background: none;
       border: none;
@@ -862,6 +868,7 @@
       currentKeywords.forEach(k => {
         const li = document.createElement('li');
         li.textContent = k;
+        if (_pinnedKeywords.has(k.toLowerCase())) li.classList.add('pinned');
         const btn = document.createElement('button');
         btn.className = 'kw-remove';
         btn.title = 'Remove keyword';
@@ -1181,6 +1188,18 @@
 
     let _catalog = null;       // null = not yet fetched with data
     let _catalogPromise = null; // in-flight fetch, shared across concurrent callers
+
+    // Pinned keywords — loaded once at startup from /api/config/pinned-keywords.
+    let _pinnedKeywords = new Set();
+    (async () => {
+      try {
+        const res = await fetch('/api/config/pinned-keywords');
+        if (res.ok) {
+          const data = await res.json();
+          _pinnedKeywords = new Set((data.pinned_keywords || []).map(k => k.toLowerCase()));
+        }
+      } catch (_) {}
+    })();
 
     // Returns the catalog array (may be empty if server hasn't built it yet).
     // Multiple concurrent callers share one in-flight request.

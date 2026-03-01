@@ -1,6 +1,8 @@
 from flask import Flask, render_template, jsonify, request, send_file
 from io import BytesIO
 import base64
+import json
+import os
 import threading
 import time
 import uuid
@@ -9,6 +11,21 @@ import identity_recognition
 import identity_registry
 
 app = Flask(__name__)
+
+# Pinned keywords — loaded from keywords_config.json if present, else template.
+def _load_pinned_keywords() -> list[str]:
+    base = os.path.dirname(os.path.abspath(__file__))
+    for name in ("keywords_config.json", "keywords_config.template.json"):
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    return json.load(f).get("pinned_keywords", [])
+            except Exception:
+                pass
+    return []
+
+_PINNED_KEYWORDS: list[str] = _load_pinned_keywords()
 
 # Resolve scripting is not thread-safe: serialise every IPC call.
 _resolve_lock = threading.Lock()
@@ -437,6 +454,11 @@ def confirm_identities():
 
     print(f"[confirm-identities] keywords_added={keywords_added!r}")
     return jsonify({"keywords_added": keywords_added})
+
+
+@app.route("/api/config/pinned-keywords")
+def pinned_keywords():
+    return jsonify({"pinned_keywords": _PINNED_KEYWORDS})
 
 
 if __name__ == "__main__":

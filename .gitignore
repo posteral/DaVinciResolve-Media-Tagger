@@ -23,6 +23,9 @@ build/
 # macOS
 .DS_Store
 
+# Personal keyword config (use keywords_config.template.json as a starting point)
+keywords_config.json
+
 # Identity recognition runtime data
 identity_registry.json
 identity_registry.json.bak
