@@ -640,53 +640,18 @@ def frames_from_file_path(
 
 
 def _extract_frames_single_pass(file_path: str, ffmpeg: str, seeks: list[float]) -> list[bytes]:
-    """Extract multiple frames from a media file in a single ffmpeg invocation.
+    """Extract multiple frames concurrently, one ffmpeg subprocess per seek.
 
-    Uses the concat demuxer trick: seek to each timestamp with a separate
-    -ss/-i pair, pipe all frames out as a raw PNG image2pipe stream, then
-    split on the PNG magic bytes.  This avoids spawning N processes for N
-    frames and eliminates repeated container-open overhead."""
+    Runs all extractions in parallel via ThreadPoolExecutor so the wall-clock
+    time is roughly that of a single extraction, not N × single extraction.
+    The duration probe has already been done by the caller so there is no
+    redundant ffprobe here."""
     if not seeks:
         return []
 
-    # Build input args: one -ss / -i / -frames:v 1 group per seek position.
-    input_args: list[str] = []
-    for seek in seeks:
-        input_args += ["-ss", str(seek), "-i", file_path, "-frames:v", "1"]
-
-    # Map each input stream to the output pipe.
-    map_args: list[str] = []
-    for i in range(len(seeks)):
-        map_args += ["-map", f"{i}:v:0"]
-
-    try:
-        result = subprocess.run(
-            [ffmpeg, *input_args, *map_args,
-             "-f", "image2pipe", "-vcodec", "png", "-"],
-            capture_output=True,
-            timeout=30,
-        )
-    except Exception:
-        return []
-
-    if result.returncode != 0 or not result.stdout:
-        return []
-
-    # Split the concatenated PNG stream on the PNG magic bytes (8-byte signature).
-    PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-    raw = result.stdout
-    frames: list[bytes] = []
-    pos = 0
-    while pos < len(raw):
-        start = raw.find(PNG_MAGIC, pos)
-        if start == -1:
-            break
-        next_start = raw.find(PNG_MAGIC, start + len(PNG_MAGIC))
-        chunk = raw[start:next_start] if next_start != -1 else raw[start:]
-        if chunk:
-            frames.append(chunk)
-        pos = next_start if next_start != -1 else len(raw)
-
-    return frames
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(seeks)) as pool:
+        results = list(pool.map(lambda s: _extract_frame(file_path, ffmpeg, s), seeks))
+    return [f for f in results if f]
 
 
