@@ -225,6 +225,41 @@ def _get_sorted_clips(folder: Any) -> list:
     return sorted_clips
 
 
+def _find_folder_for_clip(folder: Any, target_id: str) -> Any | None:
+    """Recursively search the folder tree for the folder containing target_id.
+    Returns the folder object, or None if not found."""
+    for clip in _as_sequence(folder.GetClipList()):
+        if clip.GetMediaId() == target_id:
+            return folder
+    for subfolder in _as_sequence(folder.GetSubFolderList()):
+        found = _find_folder_for_clip(subfolder, target_id)
+        if found is not None:
+            return found
+    return None
+
+
+def _resolve_folder(media_pool: Any, current_item: Any) -> Any | None:
+    """Return the Media Pool folder for current_item.
+
+    Tries GetCurrentFolder() first (fast). Falls back to a tree walk when
+    Resolve has no current folder set — which happens when the clip is
+    selected from the timeline rather than the Media Pool browser."""
+    folder = media_pool.GetCurrentFolder()
+    if folder is not None:
+        # Verify the current clip actually lives in this folder; if not
+        # (e.g. Resolve reports a stale current folder) fall through to walk.
+        current_id = current_item.GetMediaId()
+        clips = _as_sequence(folder.GetClipList())
+        if any(c.GetMediaId() == current_id for c in clips):
+            return folder
+
+    # Fall back: walk the full tree to find the right folder.
+    root = media_pool.GetRootFolder()
+    if root is None:
+        return None
+    return _find_folder_for_clip(root, current_item.GetMediaId())
+
+
 def navigate_clip(resolve: Any, direction: int) -> Any | None:
     """Select the next (+1) or previous (-1) clip in the current Media Pool
     folder, ordered by Date Created (matching Resolve's default UI sort).
@@ -243,7 +278,7 @@ def navigate_clip(resolve: Any, direction: int) -> Any | None:
     if current_item is None:
         return None
 
-    folder = media_pool.GetCurrentFolder()
+    folder = _resolve_folder(media_pool, current_item)
     if folder is None:
         return None
 
@@ -291,7 +326,7 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     if current_item is None:
         return [], {"reason": "no current item"}
 
-    folder = media_pool.GetCurrentFolder()
+    folder = _resolve_folder(media_pool, current_item)
     if folder is None:
         return [], {"reason": "no folder"}
 
