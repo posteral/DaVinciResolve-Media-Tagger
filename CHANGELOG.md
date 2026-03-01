@@ -4,6 +4,59 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-03-01
+
+### Changed
+
+- Filmstrip now loads via a single `GET /api/clip/filmstrip?path=` request that
+  returns all 5 frames as base64-encoded PNG in one JSON response. Previously 5
+  separate HTTP requests were made (one per frame), each spawning its own ffprobe
+  + ffmpeg subprocess pair.
+- Thumbnail is now reused from the filmstrip midpoint frame (index 2, 50%) when
+  a proxy is available. The separate `/api/clip/thumbnail` round-trip is skipped
+  entirely, saving one ffprobe + one ffmpeg call per clip load.
+- AI suggestions now fire immediately on clip load without waiting for the keyword
+  catalog. The catalog loads in parallel; previously the UI blocked for up to 4
+  seconds polling for catalog data before sending the Ollama request.
+- `ffmpeg` and `ffprobe` binary paths are now cached at module level after the
+  first lookup. `shutil.which()` is no longer called on every request.
+
+### Fixed
+
+- Applying identities from the Detected Identities panel now removes matching
+  keywords from both the proximity (purple) and AI (teal) suggestion lists.
+  Previously, a name just added as a keyword would still appear as a suggestion.
+
+## [0.18.5] - 2026-03-01
+
+### Fixed
+
+- `set_keywords()` now calls both `SetMetadata("Keywords", ...)` and
+  `SetClipProperty("Keywords", ...)` when saving. Writing only to `SetMetadata`
+  did not register keywords in Resolve's Keyword Manager autocomplete index.
+
+## [0.18.4] - 2026-03-01
+
+### Changed
+
+- AI suggestion prompt stripped to image + existing keywords only. Catalog,
+  proximity suggestions, and file path context were removed — they overwhelmed
+  small VLMs and caused random or irrelevant output.
+
+## [0.18.3] - 2026-03-01
+
+### Changed
+
+- AI suggestion now sends a single midpoint frame (50%) to Ollama instead of
+  5 frames. Reduces Ollama inference time by ~5× with no meaningful quality loss.
+
+## [0.18.2] - 2026-03-01
+
+### Changed
+
+- Keyword suggestion cap raised to **10** for both proximity (purple) and AI
+  (teal) suggestions.
+
 ## [0.18.1] - 2026-02-28
 
 ### Fixed
