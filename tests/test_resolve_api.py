@@ -74,6 +74,7 @@ class TestSetKeywords(unittest.TestCase):
         item.SetMetadata.return_value = True
         self.assertTrue(resolve_api.set_keywords(item, ["a", "b"]))
         item.SetMetadata.assert_called_once_with("Keywords", "a, b")
+        item.SetClipProperty.assert_called_once_with("Keywords", "a, b")
 
     def test_returns_false_on_failure(self):
         item = MagicMock()
@@ -90,6 +91,7 @@ class TestSetKeywords(unittest.TestCase):
         item.SetMetadata.return_value = True
         resolve_api.set_keywords(item, [])
         item.SetMetadata.assert_called_once_with("Keywords", "")
+        item.SetClipProperty.assert_called_once_with("Keywords", "")
 
 
 class TestThumbnailFromFilePath(unittest.TestCase):
