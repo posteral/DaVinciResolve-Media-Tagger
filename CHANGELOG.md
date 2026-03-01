@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-03-01
+
+### Added
+
+- **Pinned keywords** highlighted in blue in both the keyword tag list and the
+  proximity suggestions panel. Configure your personal keywords in
+  `keywords_config.json` (gitignored — copy from `keywords_config.template.json`).
+  The app loads the config at startup via `GET /api/config/pinned-keywords`.
+
+### Fixed
+
+- Navigation and proximity suggestions now work when a clip is selected from the
+  **timeline** rather than the Media Pool browser. Previously `GetCurrentFolder()`
+  returned `None` in this case, causing spurious "No more clips" errors. Both
+  `navigate_clip()` and `suggest_keywords()` now fall back to a full folder tree
+  walk via `_resolve_folder()` to locate the correct folder.
+
+### Changed
+
+- Overlapping proximity and AI suggestions are now highlighted **orange** using
+  word-level matching (e.g. `bathroom sink` and `bathroom` both highlight because
+  they share the word `bathroom`).
+
 ## [0.19.0] - 2026-03-01
 
 ### Changed
