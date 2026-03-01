@@ -982,24 +982,29 @@
     }
 
     function _highlightOverlappingSuggestions() {
-      // Collect all AI suggestion keywords (lowercase for comparison).
       const aiInputs = document.querySelectorAll('#ai-suggestion-container .ai-suggestion-input');
-      const aiLower = new Set([...aiInputs].map(el => el.value.trim().toLowerCase()));
-
-      // Collect all proximity suggestion keywords (lowercase).
       const proxBtns = document.querySelectorAll('#suggestions-container .suggestion-btn');
-      const proxLower = new Set([...proxBtns].map(btn => btn.textContent.replace(/^\+\s*/, '').trim().toLowerCase()));
 
-      // Highlight proximity buttons that match an AI suggestion.
-      proxBtns.forEach(btn => {
-        const kw = btn.textContent.replace(/^\+\s*/, '').trim().toLowerCase();
-        btn.classList.toggle('overlap', aiLower.has(kw));
+      const aiKeywords  = [...aiInputs].map(el => el.value.trim().toLowerCase());
+      const proxKeywords = [...proxBtns].map(btn => btn.textContent.replace(/^\+\s*/, '').trim().toLowerCase());
+
+      // Two keywords overlap if any word from one appears as a word in the other.
+      function wordsOf(kw) { return new Set(kw.split(/\s+/).filter(Boolean)); }
+      function hasWordOverlap(a, b) {
+        const wa = wordsOf(a), wb = wordsOf(b);
+        for (const w of wa) if (wb.has(w)) return true;
+        return false;
+      }
+      function overlapsAny(kw, list) {
+        return list.some(other => hasWordOverlap(kw, other));
+      }
+
+      proxBtns.forEach((btn, i) => {
+        btn.classList.toggle('overlap', overlapsAny(proxKeywords[i], aiKeywords));
       });
 
-      // Highlight AI rows whose keyword matches a proximity suggestion.
-      aiInputs.forEach(input => {
-        const kw = input.value.trim().toLowerCase();
-        const isOverlap = proxLower.has(kw);
+      aiInputs.forEach((input, i) => {
+        const isOverlap = overlapsAny(aiKeywords[i], proxKeywords);
         input.classList.toggle('overlap', isOverlap);
         const addBtn = input.closest('.ai-suggestion-row')?.querySelector('.ai-suggestion-add');
         if (addBtn) addBtn.classList.toggle('overlap', isOverlap);
