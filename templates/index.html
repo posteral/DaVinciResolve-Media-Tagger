@@ -747,13 +747,17 @@
       `;
       renderKeywords();
       if (data.unsorted) showSave();
-      loadThumbnail(data.file_path || null, data.no_proxy || false);
+      if (data.no_proxy || !data.file_path) {
+        // No proxy: show placeholder or fetch thumbnail via Resolve IPC fallback.
+        loadThumbnail(data.file_path || null, data.no_proxy || false);
+      }
       if (data.suggestions !== undefined) {
         renderSuggestions(data.suggestions);
       } else {
         loadSuggestions();
       }
       if (!data.no_proxy && data.file_path) {
+        // loadFilmstrip also populates the thumbnail from the midpoint frame.
         loadFilmstrip(data.file_path);
         loadAiSuggestion(data.file_path, data.suggestions || []);
         loadIdentities(data.file_path);
@@ -954,12 +958,15 @@
         return;
       }
 
+      // When a proxy is available, the filmstrip fetch covers the midpoint frame
+      // (index 2 at 50%) — no separate thumbnail request needed.
+      // This function is now only called for the no-proxy fallback path.
       try {
         const url = filePath
           ? '/api/clip/thumbnail?path=' + encodeURIComponent(filePath)
           : '/api/clip/thumbnail';
         const res = await fetch(url);
-        if (!res.ok) return; // placeholder stays visible
+        if (!res.ok) return;
         const blob = await res.blob();
         img.src = URL.createObjectURL(blob);
         img.style.display = 'block';
@@ -1031,31 +1038,55 @@
       section.style.display = 'block';
     }
 
-    function loadFilmstrip(filePath) {
+    async function loadFilmstrip(filePath) {
       const strip = document.getElementById('filmstrip');
       if (!strip || !filePath) return;
+
+      // Show placeholder frames while loading.
       strip.style.display = 'flex';
       const FRAME_COUNT = 5;
-      // Fire all 5 fetches concurrently; each appends its frame as it arrives.
+      const placeholders = [];
       for (let i = 0; i < FRAME_COUNT; i++) {
-        const url = '/api/clip/filmstrip-frame?' + new URLSearchParams({ path: filePath, index: i });
         const wrap = document.createElement('div');
         wrap.className = 'filmstrip-frame-wrap';
-        const placeholder = document.createElement('div');
-        placeholder.style.cssText = 'width:160px;height:90px;background:#222;border-radius:2px;';
-        wrap.appendChild(placeholder);
+        const ph = document.createElement('div');
+        ph.style.cssText = 'width:160px;height:90px;background:#222;border-radius:2px;';
+        wrap.appendChild(ph);
         strip.appendChild(wrap);
-        fetch(url).then(res => {
-          if (!res.ok) { wrap.remove(); return; }
-          return res.blob();
-        }).then(blob => {
-          if (!blob) return;
+        placeholders.push({ wrap, ph });
+      }
+
+      try {
+        const url = '/api/clip/filmstrip?' + new URLSearchParams({ path: filePath });
+        const res = await fetch(url);
+        if (!res.ok) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
+        const data = await res.json();
+        const frames = data.frames || [];
+
+        // Replace placeholders with real frames; remove extras if fewer than 5 returned.
+        placeholders.forEach(({ wrap, ph }, i) => {
+          if (i >= frames.length) { wrap.remove(); return; }
           const img = document.createElement('img');
           img.className = 'filmstrip-frame';
           img.alt = 'Frame ' + (i + 1);
-          img.src = URL.createObjectURL(blob);
-          placeholder.replaceWith(img);
-        }).catch(() => wrap.remove());
+          img.src = 'data:image/png;base64,' + frames[i];
+          ph.replaceWith(img);
+
+          // Use the midpoint frame (index 2, 50%) as the card thumbnail too —
+          // avoids a separate /api/clip/thumbnail round-trip.
+          if (i === 2) {
+            const thumbImg = document.getElementById('clip-thumbnail');
+            const thumbPh  = document.getElementById('thumb-placeholder');
+            if (thumbImg && thumbPh) {
+              thumbImg.src = img.src;
+              thumbImg.style.display = 'block';
+              thumbPh.style.display = 'none';
+            }
+          }
+        });
+      } catch (_) {
+        strip.innerHTML = '';
+        strip.style.display = 'none';
       }
     }
 
@@ -1065,16 +1096,15 @@
       if (aiSection) aiSection.style.display = 'block';
       if (aiSpinner) aiSpinner.style.display = 'inline-block';
       try {
-        // Poll for the catalog up to 5 times (server builds it in background).
-        let catalog = await _loadCatalog();
-        for (let attempt = 0; attempt < 4 && (!catalog || catalog.length === 0); attempt++) {
-          await new Promise(r => setTimeout(r, 1000));
-          catalog = await _loadCatalog();
-        }
+        // Kick off catalog load in background but don't wait for it —
+        // use whatever is already cached. The AI prompt benefits most from
+        // existing keywords; catalog context is a nice-to-have.
+        _loadCatalog();
+        const catalog = (_catalog && _catalog.length > 0) ? _catalog : [];
         const body = { path: filePath };
         if (currentKeywords.length) body.keywords = currentKeywords;
         if (proximitySuggestions.length) body.suggestions = proximitySuggestions;
-        if (catalog && catalog.length) body.catalog = catalog;
+        if (catalog.length) body.catalog = catalog;
         const res = await fetch('/api/clip/ai-suggestion', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

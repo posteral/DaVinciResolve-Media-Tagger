@@ -528,24 +528,38 @@ def ai_suggest_keywords(
         return []
 
 
+_FFMPEG_PATH: str | None = None
+_FFPROBE_PATH: str | None = None
+
+
 def _ffmpeg_path() -> str:
+    global _FFMPEG_PATH
+    if _FFMPEG_PATH is not None:
+        return _FFMPEG_PATH
     import shutil
     exe = shutil.which("ffmpeg")
     if exe:
+        _FFMPEG_PATH = exe
         return exe
     for candidate in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"):
         if os.path.isfile(candidate):
+            _FFMPEG_PATH = candidate
             return candidate
     raise FileNotFoundError("ffmpeg not found; install it with: brew install ffmpeg")
 
 
 def _ffprobe_path() -> str:
+    global _FFPROBE_PATH
+    if _FFPROBE_PATH is not None:
+        return _FFPROBE_PATH
     import shutil
     exe = shutil.which("ffprobe")
     if exe:
+        _FFPROBE_PATH = exe
         return exe
     for candidate in ("/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"):
         if os.path.isfile(candidate):
+            _FFPROBE_PATH = candidate
             return candidate
     raise FileNotFoundError("ffprobe not found; install it with: brew install ffmpeg")
 
@@ -607,10 +621,9 @@ def frames_from_file_path(
     file_path: str,
     percentages: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
 ) -> list[bytes]:
-    """Extract one PNG frame per percentage position of the clip duration.
-    Returns a list of raw PNG bytes (may be shorter than percentages if some
-    frames fail). Falls back to a single mid-point frame if duration is unknown.
-    No Resolve IPC."""
+    """Extract one PNG frame per percentage position of the clip duration in a
+    single ffmpeg pass. Returns a list of raw PNG bytes (may be shorter than
+    percentages if the duration is unknown). No Resolve IPC."""
     try:
         ffmpeg = _ffmpeg_path()
         ffprobe = _ffprobe_path()
@@ -623,9 +636,57 @@ def frames_from_file_path(
     else:
         seeks = [0.0]  # unknown duration — fall back to start
 
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=len(seeks)) as pool:
-        results = list(pool.map(lambda s: _extract_frame(file_path, ffmpeg, s), seeks))
-    return [f for f in results if f]
+    return _extract_frames_single_pass(file_path, ffmpeg, seeks)
+
+
+def _extract_frames_single_pass(file_path: str, ffmpeg: str, seeks: list[float]) -> list[bytes]:
+    """Extract multiple frames from a media file in a single ffmpeg invocation.
+
+    Uses the concat demuxer trick: seek to each timestamp with a separate
+    -ss/-i pair, pipe all frames out as a raw PNG image2pipe stream, then
+    split on the PNG magic bytes.  This avoids spawning N processes for N
+    frames and eliminates repeated container-open overhead."""
+    if not seeks:
+        return []
+
+    # Build input args: one -ss / -i / -frames:v 1 group per seek position.
+    input_args: list[str] = []
+    for seek in seeks:
+        input_args += ["-ss", str(seek), "-i", file_path, "-frames:v", "1"]
+
+    # Map each input stream to the output pipe.
+    map_args: list[str] = []
+    for i in range(len(seeks)):
+        map_args += ["-map", f"{i}:v:0"]
+
+    try:
+        result = subprocess.run(
+            [ffmpeg, *input_args, *map_args,
+             "-f", "image2pipe", "-vcodec", "png", "-"],
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:
+        return []
+
+    if result.returncode != 0 or not result.stdout:
+        return []
+
+    # Split the concatenated PNG stream on the PNG magic bytes (8-byte signature).
+    PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+    raw = result.stdout
+    frames: list[bytes] = []
+    pos = 0
+    while pos < len(raw):
+        start = raw.find(PNG_MAGIC, pos)
+        if start == -1:
+            break
+        next_start = raw.find(PNG_MAGIC, start + len(PNG_MAGIC))
+        chunk = raw[start:next_start] if next_start != -1 else raw[start:]
+        if chunk:
+            frames.append(chunk)
+        pos = next_start if next_start != -1 else len(raw)
+
+    return frames
 
 

@@ -367,13 +367,26 @@ class TestNormaliseAiKeyword(unittest.TestCase):
 
 
 class TestFramesFromFilePath(unittest.TestCase):
-    def _run(self, duration_stdout=b"10.0", ffprobe_rc=0, frame_rc=0, frame_stdout=b"PNG"):
+    # PNG magic bytes — used to build a fake concatenated PNG stream.
+    PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+    def _make_png(self, tag: bytes = b"") -> bytes:
+        """Return a minimal fake PNG chunk (magic + some payload)."""
+        return self.PNG_MAGIC + tag + b"\x00" * 4
+
+    def _make_stream(self, n: int) -> bytes:
+        """Return n fake PNG frames concatenated as a single byte stream."""
+        return b"".join(self._make_png(f"F{i}".encode()) for i in range(n))
+
+    def _run(self, duration_stdout=b"10.0", ffprobe_rc=0, ffmpeg_rc=0, n_frames=5):
+        stream = self._make_stream(n_frames) if ffmpeg_rc == 0 else b""
         with patch("resolve_api._ffmpeg_path", return_value="/usr/bin/ffmpeg"), \
              patch("resolve_api._ffprobe_path", return_value="/usr/bin/ffprobe"), \
              patch("resolve_api.subprocess") as mock_sub:
             mock_sub.run.side_effect = [
                 MagicMock(returncode=ffprobe_rc, stdout=duration_stdout),
-            ] + [MagicMock(returncode=frame_rc, stdout=frame_stdout)] * 10
+                MagicMock(returncode=ffmpeg_rc, stdout=stream),
+            ]
             result = resolve_api.frames_from_file_path("/fake/clip.mov")
         return result, mock_sub
 
@@ -383,33 +396,29 @@ class TestFramesFromFilePath(unittest.TestCase):
 
     def test_all_frames_are_png_bytes(self):
         frames, _ = self._run()
-        self.assertTrue(all(f == b"PNG" for f in frames))
+        for f in frames:
+            self.assertTrue(f.startswith(self.PNG_MAGIC))
 
     def test_seeks_at_correct_percentages(self):
         _, mock_sub = self._run(duration_stdout=b"100.0")
-        seek_args = {call[0][0][2] for call in mock_sub.run.call_args_list[1:]}
+        # The second subprocess.run call is the single-pass ffmpeg invocation.
+        ffmpeg_args = mock_sub.run.call_args_list[1][0][0]
+        # -ss values appear at positions 1, 5, 9, 13, 17 (every 4 args after ffmpeg).
+        seek_args = {ffmpeg_args[i] for i in range(1, len(ffmpeg_args)) if ffmpeg_args[i - 1] == "-ss"}
         self.assertEqual(seek_args, {"10.0", "30.0", "50.0", "70.0", "90.0"})
 
     def test_falls_back_to_single_frame_when_duration_unknown(self):
-        frames, mock_sub = self._run(ffprobe_rc=1, duration_stdout=b"")
+        frames, mock_sub = self._run(ffprobe_rc=1, duration_stdout=b"", n_frames=1)
         self.assertEqual(len(frames), 1)
-        seek_arg = mock_sub.run.call_args_list[1][0][0][2]
-        self.assertEqual(seek_arg, "0.0")
+        ffmpeg_args = mock_sub.run.call_args_list[1][0][0]
+        seek_args = {ffmpeg_args[i] for i in range(1, len(ffmpeg_args)) if ffmpeg_args[i - 1] == "-ss"}
+        self.assertEqual(seek_args, {"0.0"})
 
     def test_skips_failed_frames(self):
-        with patch("resolve_api._ffmpeg_path", return_value="/usr/bin/ffmpeg"), \
-             patch("resolve_api._ffprobe_path", return_value="/usr/bin/ffprobe"), \
-             patch("resolve_api.subprocess") as mock_sub:
-            mock_sub.run.side_effect = [
-                MagicMock(returncode=0, stdout=b"10.0"),
-                MagicMock(returncode=0, stdout=b"F1"),
-                MagicMock(returncode=1, stdout=b""),   # fail
-                MagicMock(returncode=0, stdout=b"F3"),
-                MagicMock(returncode=0, stdout=b"F4"),
-                MagicMock(returncode=0, stdout=b"F5"),
-            ]
-            frames = resolve_api.frames_from_file_path("/fake/clip.mov")
-        self.assertEqual(len(frames), 4)
+        # When ffmpeg returns a stream with fewer frames than requested,
+        # only the available frames are returned.
+        frames, _ = self._run(n_frames=3)
+        self.assertEqual(len(frames), 3)
 
     def test_returns_empty_when_ffmpeg_not_found(self):
         with patch("resolve_api._ffmpeg_path", side_effect=FileNotFoundError):
