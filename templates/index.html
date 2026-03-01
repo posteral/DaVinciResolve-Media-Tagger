@@ -466,6 +466,8 @@
     .suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .suggestion-btn.overlap { background: #7a3d00; color: #ffc87a; border-color: #c45e00; }
     .suggestion-btn.overlap:hover:not(:disabled) { background: #9c5000; }
+    .suggestion-btn.pinned { background: #0e2a4a; color: #7ab8f5; border-color: #1e5a9a; }
+    .suggestion-btn.pinned:hover:not(:disabled) { background: #1a3d6e; }
     .ai-suggestion-input.overlap { background: #3d2000; color: #ffc87a; border-color: #c45e00; }
     .ai-suggestion-add.overlap { background: #7a3d00; color: #ffc87a; border-color: #c45e00; }
     .ai-suggestion-add.overlap:hover:not(:disabled) { background: #9c5000; }
@@ -1027,7 +1029,7 @@
       row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
       suggestions.forEach(kw => {
         const btn = document.createElement('button');
-        btn.className = 'suggestion-btn';
+        btn.className = 'suggestion-btn' + (_pinnedKeywords.has(kw.toLowerCase()) ? ' pinned' : '');
         btn.textContent = '+ ' + kw;
         btn.addEventListener('click', () => addSuggestion(kw, btn));
         row.appendChild(btn);
