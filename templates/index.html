@@ -1609,6 +1609,34 @@
       apply.onclick = applyIdentities;
     }
 
+    function _removeSuggestionsMatchingKeywords(keywords) {
+      const lower = new Set(keywords.map(k => k.toLowerCase()));
+
+      // Remove matching proximity suggestion buttons (purple).
+      document.querySelectorAll('#suggestions-container .suggestion-btn').forEach(btn => {
+        const kw = btn.textContent.replace(/^\+\s*/, '').trim();
+        if (lower.has(kw.toLowerCase())) btn.closest('button') ? btn.remove() : btn.remove();
+      });
+
+      // Remove matching AI suggestion rows (teal).
+      document.querySelectorAll('#ai-suggestion-container .ai-suggestion-row').forEach(row => {
+        const input = row.querySelector('.ai-suggestion-input');
+        if (input && lower.has(input.value.trim().toLowerCase())) row.remove();
+      });
+
+      // Hide section headers if their containers are now empty.
+      const sugSection = document.getElementById('suggestions-section');
+      const sugContainer = document.getElementById('suggestions-container');
+      if (sugSection && sugContainer && sugContainer.querySelectorAll('.suggestion-btn').length === 0) {
+        sugSection.style.display = 'none';
+      }
+      const aiSection = document.getElementById('ai-suggestion-section');
+      const aiContainer = document.getElementById('ai-suggestion-container');
+      if (aiSection && aiContainer && aiContainer.querySelectorAll('.ai-suggestion-row').length === 0) {
+        aiSection.style.display = 'none';
+      }
+    }
+
     async function applyIdentities() {
       const applyBtn = document.getElementById('identity-apply-btn');
       if (!applyBtn || applyBtn.disabled) return;
@@ -1655,6 +1683,7 @@
           currentKeywords.push(...added);
           renderKeywords();
           showSave();
+          _removeSuggestionsMatchingKeywords(added);
         }
 
         applyBtn.textContent = 'Applied ✓';
