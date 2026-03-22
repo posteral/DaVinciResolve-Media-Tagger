@@ -102,18 +102,19 @@ class TestUpdateIdentityEmbedding(unittest.TestCase):
                 reg = identity_registry.update_identity_embedding(reg, "abc", [0.2] * 128, None)
         self.assertEqual(len(reg["identities"][0]["embeddings"]), 2)
 
-    def test_fifo_cap(self):
-        embeddings = [[float(i)] * 128 for i in range(20)]
+    @unittest.skipUnless(__import__("importlib").util.find_spec("numpy"), "numpy not installed")
+    def test_diversity_cap(self):
+        # Build MAX_EMBEDDINGS embeddings, then add one more to trigger diversity selection
+        max_cap = identity_registry.MAX_EMBEDDINGS
+        embeddings = [[float(i)] * 128 for i in range(max_cap)]
         reg = {"version": 1, "identities": [
             {"identity_id": "abc", "embeddings": embeddings, "thumbnail_path": ""}
         ]}
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.object(identity_registry, "_faces_dir", return_value=Path(tmpdir) / "faces"):
                 reg = identity_registry.update_identity_embedding(reg, "abc", [99.0] * 128, None)
-        self.assertEqual(len(reg["identities"][0]["embeddings"]), 20)
-        # oldest dropped, newest kept
-        self.assertEqual(reg["identities"][0]["embeddings"][-1], [99.0] * 128)
-        self.assertEqual(reg["identities"][0]["embeddings"][0], [1.0] * 128)
+        # Cap is enforced after diversity selection
+        self.assertEqual(len(reg["identities"][0]["embeddings"]), max_cap)
 
 
 class TestListIdentities(unittest.TestCase):

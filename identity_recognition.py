@@ -5,9 +5,10 @@ from typing import Any
 
 import numpy as np
 
-KNOWN_THRESHOLD = 0.55      # distance ≤ this → known
-LOW_CONF_THRESHOLD = 0.70   # this < distance ≤ LOW_CONF → low_confidence
+KNOWN_THRESHOLD = 0.50      # distance ≤ this → known
+LOW_CONF_THRESHOLD = 0.62   # this < distance ≤ LOW_CONF → low_confidence
 CLUSTER_DISTANCE = 0.50     # intra-clip grouping threshold
+MIN_EMBEDDINGS_FOR_KNOWN = 5  # identity needs at least this many embeddings to be "known"
 
 
 def _import_face_recognition() -> Any:
@@ -146,17 +147,21 @@ def match_cluster(
             continue
         refs_array = np.array(refs)
         dists = fr.face_distance(refs_array, emb_array)
-        min_dist = float(np.min(dists))
-        if min_dist < best_dist:
-            best_dist = min_dist
+        mean_dist = float(np.mean(dists))
+        if mean_dist < best_dist:
+            best_dist = mean_dist
             best_id = identity["identity_id"]
 
-    if best_dist <= KNOWN_THRESHOLD:
-        return best_id, "known", best_dist
-    elif best_dist <= LOW_CONF_THRESHOLD:
-        return best_id, "low_confidence", best_dist
-    else:
-        return None, "unknown", None
+    if best_id:
+        identity = next(i for i in identities if i["identity_id"] == best_id)
+        n_embs = len(identity.get("embeddings", []))
+        if best_dist <= KNOWN_THRESHOLD and n_embs >= MIN_EMBEDDINGS_FOR_KNOWN:
+            return best_id, "known", best_dist
+        elif best_dist <= LOW_CONF_THRESHOLD:
+            return best_id, "low_confidence", best_dist
+        else:
+            return None, "unknown", None
+    return None, "unknown", None
 
 
 def run_detection_pipeline(

@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-MAX_EMBEDDINGS = 20  # FIFO cap per identity
+MAX_EMBEDDINGS = 50  # diversity-retention cap per identity
 
 
 def _registry_path() -> Path:
@@ -87,20 +87,39 @@ def add_identity(
     return registry, identity_id
 
 
+def _select_diverse_embeddings(embeddings: list[list[float]], keep: int) -> list[list[float]]:
+    """Greedily select `keep` embeddings from `embeddings` maximising pairwise diversity."""
+    import numpy as np
+    arr = np.array(embeddings)
+    mean = arr.mean(axis=0)
+    dists_from_mean = np.linalg.norm(arr - mean, axis=1)
+    selected = [int(np.argmax(dists_from_mean))]
+    while len(selected) < keep:
+        remaining = [i for i in range(len(arr)) if i not in selected]
+        sel_arr = arr[selected]
+        min_dists = []
+        for i in remaining:
+            d = np.linalg.norm(sel_arr - arr[i], axis=1).min()
+            min_dists.append(d)
+        best = remaining[int(np.argmax(min_dists))]
+        selected.append(best)
+    return [embeddings[i] for i in selected]
+
+
 def update_identity_embedding(
     registry: dict,
     identity_id: str,
     embedding: list[float],
     crop_bytes: bytes | None,
 ) -> dict:
-    """Append a new embedding to an existing identity (FIFO cap MAX_EMBEDDINGS).
+    """Append a new embedding to an existing identity (diversity-retention cap MAX_EMBEDDINGS).
     Optionally updates the thumbnail."""
     for identity in registry["identities"]:
         if identity["identity_id"] != identity_id:
             continue
         identity["embeddings"].append(embedding)
         if len(identity["embeddings"]) > MAX_EMBEDDINGS:
-            identity["embeddings"] = identity["embeddings"][-MAX_EMBEDDINGS:]
+            identity["embeddings"] = _select_diverse_embeddings(identity["embeddings"], MAX_EMBEDDINGS)
         if crop_bytes:
             identity["thumbnail_path"] = save_face_crop(identity_id, crop_bytes)
         break
