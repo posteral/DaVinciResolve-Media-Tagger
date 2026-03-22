@@ -539,6 +539,12 @@
       font-weight: 500;
     }
 
+    .tagged-count {
+      font-size: 0.8rem;
+      color: #888;
+      margin-left: auto;
+    }
+
     .add-keyword-wrap {
       margin-top: 16px;
       position: relative;
@@ -685,6 +691,7 @@
 
       <span id="saved-msg" class="saved-msg" style="display:none">Saved</span>
       <span id="nav-msg" class="saved-msg" style="display:none;color:#f08080"></span>
+      <span id="tagged-count" class="tagged-count" style="display:none"></span>
     </div>
 
     <div id="status-area">
@@ -721,11 +728,14 @@
 
   <script>
     let currentKeywords = [];
+    let currentFilePath = null;
     let pendingRemoval = null;
+    const _taggedClips = new Set();
 
     function renderClip(data) {
       const area = document.getElementById('status-area');
       currentKeywords = data.keywords.slice();
+      currentFilePath = data.file_path || null;
       // Reset AI suggestion section (lives outside status-area, persists across renders)
       const aiSection = document.getElementById('ai-suggestion-section');
       const aiContainer = document.getElementById('ai-suggestion-container');
@@ -939,6 +949,10 @@
         hideSave();
         savedMsg.style.display = 'inline';
         setTimeout(() => { savedMsg.style.display = 'none'; }, 2000);
+        // Track distinct tagged clips for the session counter.
+        _taggedClips.add(currentFilePath || data.clip);
+        document.getElementById('tagged-count').textContent = `${_taggedClips.size} tagged`;
+        document.getElementById('tagged-count').style.display = 'inline';
         // Invalidate catalog so it's re-fetched fresh after the background rebuild.
         _catalog = null;
       } catch (err) {
