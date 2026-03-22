@@ -5,8 +5,8 @@ from typing import Any
 
 import numpy as np
 
-KNOWN_THRESHOLD = 0.50      # distance ≤ this → known
-LOW_CONF_THRESHOLD = 0.62   # this < distance ≤ LOW_CONF → low_confidence
+KNOWN_THRESHOLD = 0.45      # min-distance ≤ this → known
+LOW_CONF_THRESHOLD = 0.58   # this < min-distance ≤ LOW_CONF → low_confidence
 CLUSTER_DISTANCE = 0.50     # intra-clip grouping threshold
 MIN_EMBEDDINGS_FOR_KNOWN = 5  # identity needs at least this many embeddings to be "known"
 
@@ -141,16 +141,22 @@ def match_cluster(
     best_dist = float("inf")
     best_id = None
 
+    scores = []
     for identity in identities:
         refs = identity.get("embeddings", [])
         if not refs:
             continue
         refs_array = np.array(refs)
         dists = fr.face_distance(refs_array, emb_array)
+        min_dist = float(np.min(dists))
         mean_dist = float(np.mean(dists))
-        if mean_dist < best_dist:
-            best_dist = mean_dist
+        scores.append((min_dist, mean_dist, identity))
+        if min_dist < best_dist:
+            best_dist = min_dist
             best_id = identity["identity_id"]
+
+    scores.sort(key=lambda x: x[0])
+    print(f"[match_cluster] top-3: {[(i['display_name'], round(md,3), round(me,3)) for md,me,i in scores[:3]]}")
 
     if best_id:
         identity = next(i for i in identities if i["identity_id"] == best_id)
