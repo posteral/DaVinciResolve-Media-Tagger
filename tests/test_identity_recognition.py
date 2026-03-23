@@ -118,7 +118,7 @@ class TestMatchCluster(unittest.TestCase):
     def test_known_match(self):
         fr = MagicMock()
         fr.face_distance.return_value = np.array([0.4])  # ≤ KNOWN_THRESHOLD
-        reg = self._registry_with("abc", [[0.1] * 128])
+        reg = self._registry_with("abc", [[0.1] * 128] * 5)  # MIN_EMBEDDINGS_FOR_KNOWN = 5
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(iid, "abc")
@@ -127,7 +127,7 @@ class TestMatchCluster(unittest.TestCase):
 
     def test_low_confidence_match(self):
         fr = MagicMock()
-        fr.face_distance.return_value = np.array([0.62])  # KNOWN < 0.62 ≤ LOW_CONF
+        fr.face_distance.return_value = np.array([0.55])  # KNOWN_THRESHOLD < 0.55 ≤ LOW_CONF_THRESHOLD
         reg = self._registry_with("abc", [[0.1] * 128])
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
@@ -166,7 +166,7 @@ class TestRunDetectionPipeline(unittest.TestCase):
 
         reg = {"identities": [
             {"identity_id": "abc", "display_name": "Alice",
-             "keyword_string": "Alice", "embeddings": [[0.1] * 128]}
+             "keyword_string": "Alice", "embeddings": [[0.1] * 128] * 5}  # MIN_EMBEDDINGS_FOR_KNOWN = 5
         ]}
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             results = identity_recognition.run_detection_pipeline([_make_png()], reg)
