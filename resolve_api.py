@@ -390,7 +390,7 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
             if key not in current_kws:
                 if weight > best_score.get(key, 0.0):
                     best_score[key] = weight
-                if key not in first_seen:
+                if key not in first_seen or (kw[0].isupper() and not first_seen[key][0].isupper()):
                     first_seen[key] = kw
 
     ranked = sorted(best_score.keys(), key=lambda k: -best_score[k])
