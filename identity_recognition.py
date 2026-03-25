@@ -5,10 +5,11 @@ from typing import Any
 
 import numpy as np
 
-KNOWN_THRESHOLD = 0.45      # min-distance ≤ this → known
-LOW_CONF_THRESHOLD = 0.58   # this < min-distance ≤ LOW_CONF → low_confidence
-CLUSTER_DISTANCE = 0.50     # intra-clip grouping threshold
-MIN_EMBEDDINGS_FOR_KNOWN = 5  # identity needs at least this many embeddings to be "known"
+KNOWN_THRESHOLD = 0.45           # min-distance ≤ this → known
+LOW_CONF_THRESHOLD = 0.58        # this < min-distance ≤ LOW_CONF → low_confidence
+CLUSTER_DISTANCE = 0.50          # intra-clip grouping threshold (embedding-only path)
+CLUSTER_DISTANCE_SPATIAL = 0.70  # looser threshold used when bounding boxes also overlap
+MIN_EMBEDDINGS_FOR_KNOWN = 5     # identity needs at least this many embeddings to be "known"
 
 
 def _import_face_recognition() -> Any:
@@ -43,12 +44,19 @@ def _crop_face(rgb_array, location: tuple, pad_fraction: float = 0.2) -> bytes:
     return buf.getvalue()
 
 
+def _boxes_overlap(a: tuple, b: tuple) -> bool:
+    """Return True if two face bounding boxes (top, right, bottom, left) overlap."""
+    a_top, a_right, a_bottom, a_left = a
+    b_top, b_right, b_bottom, b_left = b
+    return a_top < b_bottom and a_bottom > b_top and a_left < b_right and a_right > b_left
+
+
 def detect_faces_in_frames(
     frames: list[bytes],
-) -> list[tuple[list[float], bytes, int]]:
+) -> list[tuple[list[float], bytes, int, tuple]]:
     """Run face detection and encoding on a list of PNG frames.
 
-    Returns a list of (embedding, crop_bytes, frame_idx) — one entry per
+    Returns a list of (embedding, crop_bytes, frame_idx, location) — one entry per
     detected face across all frames. Returns [] if face_recognition is not
     installed or no faces are found."""
     fr = _import_face_recognition()
@@ -66,7 +74,7 @@ def detect_faces_in_frames(
             encodings = fr.face_encodings(rgb, locations)
             for location, encoding in zip(locations, encodings):
                 crop = _crop_face(rgb, location)
-                results.append((encoding.tolist(), crop, frame_idx))
+                results.append((encoding.tolist(), crop, frame_idx, location))
         except Exception as exc:
             print(f"[identity_recognition] warning: frame {frame_idx} failed: {exc}")
             continue
@@ -74,10 +82,15 @@ def detect_faces_in_frames(
 
 
 def cluster_faces(
-    detected_faces: list[tuple[list[float], bytes, int]],
+    detected_faces: list[tuple[list[float], bytes, int, tuple]],
 ) -> list[dict]:
     """Group detected faces from multiple frames into per-person clusters using
     greedy single-linkage clustering.
+
+    Merging uses two signals:
+      - Embedding distance < CLUSTER_DISTANCE (embedding-only)
+      - Bounding boxes overlap AND embedding distance < CLUSTER_DISTANCE_SPATIAL
+        (positional confirmation allows a looser embedding threshold)
 
     Returns a list of cluster dicts, each with:
       - mean_embedding: list[float]
@@ -89,25 +102,28 @@ def cluster_faces(
         return []
 
     clusters: list[dict] = []
-    for embedding, crop, frame_idx in detected_faces:
+    for embedding, crop, frame_idx, location in detected_faces:
         emb_array = np.array(embedding)
         matched = None
         for cluster in clusters:
             rep = np.array(cluster["representative_embedding"])
             dist = fr.face_distance([rep], emb_array)[0]
-            if dist < CLUSTER_DISTANCE:
+            overlap = any(_boxes_overlap(location, loc) for loc in cluster["locations"])
+            if dist < CLUSTER_DISTANCE or (overlap and dist < CLUSTER_DISTANCE_SPATIAL):
                 matched = cluster
                 break
         if matched is not None:
             matched["embeddings"].append(embedding)
             matched["crops"].append(crop)
             matched["frame_indices"].append(frame_idx)
+            matched["locations"].append(location)
         else:
             clusters.append({
                 "representative_embedding": embedding,
                 "embeddings": [embedding],
                 "crops": [crop],
                 "frame_indices": [frame_idx],
+                "locations": [location],
             })
 
     result = []

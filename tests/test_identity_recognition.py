@@ -35,10 +35,11 @@ class TestDetectFacesInFrames(unittest.TestCase):
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             results = identity_recognition.detect_faces_in_frames([_make_png()])
         self.assertEqual(len(results), 1)
-        embedding, crop, frame_idx = results[0]
+        embedding, crop, frame_idx, location = results[0]
         self.assertEqual(len(embedding), 128)
         self.assertIsInstance(crop, bytes)
         self.assertEqual(frame_idx, 0)
+        self.assertEqual(len(location), 4)  # (top, right, bottom, left)
 
     def test_returns_empty_when_face_recognition_missing(self):
         with patch.object(identity_recognition, "_import_face_recognition", return_value=None):
@@ -70,8 +71,8 @@ class TestDetectFacesInFrames(unittest.TestCase):
 
 
 class TestClusterFaces(unittest.TestCase):
-    def _detected(self, embedding, frame_idx=0):
-        return (embedding, b"crop", frame_idx)
+    def _detected(self, embedding, frame_idx=0, location=(0, 10, 10, 0)):
+        return (embedding, b"crop", frame_idx, location)
 
     def test_same_person_multiple_frames_gives_one_cluster(self):
         emb = np.array([0.1] * 128)
@@ -87,22 +88,26 @@ class TestClusterFaces(unittest.TestCase):
         emb_a = np.array([0.1] * 128)
         emb_b = np.array([0.9] * 128)
         fr = MagicMock()
-        fr.face_distance.return_value = np.array([0.8])  # above CLUSTER_DISTANCE
-        detected = [self._detected(emb_a.tolist(), 0), self._detected(emb_b.tolist(), 1)]
+        fr.face_distance.return_value = np.array([0.8])  # above both thresholds
+        # Non-overlapping boxes so spatial path doesn't merge them either
+        detected = [
+            self._detected(emb_a.tolist(), 0, location=(0, 10, 10, 0)),
+            self._detected(emb_b.tolist(), 1, location=(50, 60, 60, 50)),
+        ]
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             clusters = identity_recognition.cluster_faces(detected)
         self.assertEqual(len(clusters), 2)
 
     def test_returns_empty_when_face_recognition_missing(self):
         with patch.object(identity_recognition, "_import_face_recognition", return_value=None):
-            clusters = identity_recognition.cluster_faces([(np.array([0.1] * 128).tolist(), b"", 0)])
+            clusters = identity_recognition.cluster_faces([(np.array([0.1] * 128).tolist(), b"", 0, (0, 10, 10, 0))])
         self.assertEqual(clusters, [])
 
     def test_mean_embedding_shape(self):
         emb = np.array([0.5] * 128)
         fr = MagicMock()
         fr.face_distance.return_value = np.array([0.1])
-        detected = [(emb.tolist(), b"crop", 0), (emb.tolist(), b"crop", 1)]
+        detected = [(emb.tolist(), b"crop", 0, (0, 10, 10, 0)), (emb.tolist(), b"crop", 1, (0, 10, 10, 0))]
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
             clusters = identity_recognition.cluster_faces(detected)
         self.assertEqual(len(clusters[0]["mean_embedding"]), 128)
