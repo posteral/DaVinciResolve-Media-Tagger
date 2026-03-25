@@ -30,3 +30,6 @@ keywords_config.json
 identity_registry.json
 identity_registry.json.bak
 faces/
+
+# Profiling reports
+profile_*.json

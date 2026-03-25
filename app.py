@@ -9,6 +9,7 @@ import uuid
 import resolve_api
 import identity_recognition
 import identity_registry
+import profiler
 
 app = Flask(__name__)
 
@@ -175,8 +176,14 @@ def clip_filmstrip():
     if not file_path:
         return jsonify({"frames": []}), 204
 
-    frames = resolve_api.frames_from_file_path(file_path)
+    t0 = time.perf_counter()
+    frames, probe_ms, extract_ms = resolve_api.frames_from_file_path_timed(file_path)
+    t_ffmpeg = time.perf_counter() - t0
     encoded = [base64.b64encode(f).decode() for f in frames]
+    t_encode = (time.perf_counter() - t0 - t_ffmpeg) * 1000
+    t_total = t_ffmpeg * 1000 + t_encode
+    print(f"[filmstrip] frames={len(frames)} probe={probe_ms:.0f}ms extract={extract_ms:.0f}ms encode={t_encode:.0f}ms total={t_total:.0f}ms")
+    profiler.record_filmstrip(t_total, probe_ms, extract_ms, t_encode, len(frames))
     return jsonify({"frames": encoded})
 
 
@@ -279,8 +286,10 @@ def navigate_clip():
     else:
         return jsonify({"error": "direction must be 'next' or 'prev'"}), 400
 
+    t0 = time.perf_counter()
     try:
         with _resolve_lock:
+            t_lock = time.perf_counter()
             resolve = _get_resolve()
             item = resolve_api.navigate_clip(resolve, direction)
             if item is None:
@@ -292,10 +301,13 @@ def navigate_clip():
                 item.GetMetadata("Keywords") or item.GetClipProperty("Keywords") or ""
             )
             proxy_path = item.GetClipProperty("Proxy Media Path") or ""
+            t_ipc = time.perf_counter() - t_lock
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
-    print(f"[navigate] clip={name!r}")
+    t_total = time.perf_counter() - t0
+    print(f"[navigate] clip={name!r} total={t_total*1000:.0f}ms resolve_ipc={t_ipc*1000:.0f}ms")
+    profiler.record_navigate(t_total * 1000, t_ipc * 1000)
     return jsonify({
         "clip": name,
         "media_id": media_id,
@@ -304,6 +316,27 @@ def navigate_clip():
         "file_path": proxy_path,
         "no_proxy": not bool(proxy_path),
     })
+
+
+@app.route("/api/profiler/report", methods=["GET"])
+def profiler_report():
+    """Return current profiling summary as JSON."""
+    return jsonify(profiler.summary())
+
+
+@app.route("/api/profiler/dump", methods=["POST"])
+def profiler_dump():
+    """Write profiling report to a timestamped JSON file next to app.py."""
+    path = profiler.dump()
+    print(f"[profiler] report written to {path}")
+    return jsonify({"path": path})
+
+
+@app.route("/api/profiler/filmstrip-cache-hit", methods=["POST"])
+def profiler_filmstrip_cache_hit():
+    """Record a client-side filmstrip cache hit."""
+    profiler.record_filmstrip_cache_hit()
+    return "", 204
 
 
 @app.route("/api/clip/neighbours", methods=["GET"])

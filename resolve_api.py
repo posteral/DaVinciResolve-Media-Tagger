@@ -704,13 +704,36 @@ def frames_from_file_path(
     except FileNotFoundError:
         return []
 
+    frames, _, _ = frames_from_file_path_timed(file_path, percentages)
+    return frames
+
+
+def frames_from_file_path_timed(
+    file_path: str,
+    percentages: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
+) -> tuple[list[bytes], float, float]:
+    """Like frames_from_file_path but also returns (probe_ms, extract_ms)."""
+    import time as _time
+    try:
+        ffmpeg = _ffmpeg_path()
+        ffprobe = _ffprobe_path()
+    except FileNotFoundError:
+        return [], 0.0, 0.0
+
+    t0 = _time.perf_counter()
     duration = _probe_duration(file_path, ffprobe)
+    probe_ms = (_time.perf_counter() - t0) * 1000
+
     if duration > 0:
         seeks = [duration * p for p in percentages]
     else:
-        seeks = [0.0]  # unknown duration — fall back to start
+        seeks = [0.0]
 
-    return _extract_frames_single_pass(file_path, ffmpeg, seeks)
+    t1 = _time.perf_counter()
+    frames = _extract_frames_single_pass(file_path, ffmpeg, seeks)
+    extract_ms = (_time.perf_counter() - t1) * 1000
+
+    return frames, probe_ms, extract_ms
 
 
 def _extract_frames_single_pass(file_path: str, ffmpeg: str, seeks: list[float]) -> list[bytes]:
