@@ -211,15 +211,22 @@ def invalidate_folder_cache() -> None:
     _last_suggestions = None
 
 
-def _get_folder_cache(folder: Any) -> tuple[list, dict, dict, dict]:
+def _get_folder_cache(folder: Any, raw: list | None = None) -> tuple[list, dict, dict, dict]:
     """Return (sorted_clips, date_by_id, keywords_by_id, proxy_by_id) for the folder,
-    building and caching all per-clip data in a single pass."""
+    building and caching all per-clip data in a single pass.
+
+    Pass raw (already-fetched GetClipList result) to avoid a redundant IPC call
+    when the caller already has the clip list."""
     global _folder_cache
-    raw = _as_sequence(folder.GetClipList())
-    cache_key = (folder.GetName(), len(raw))
-    if _folder_cache is not None and _folder_cache[0] == cache_key:
+    folder_name = folder.GetName()
+    # Cache hit: same folder name and cache is still valid (not invalidated by Save).
+    if _folder_cache is not None and _folder_cache[0] == folder_name:
         _, sorted_clips, date_by_id, keywords_by_id, proxy_by_id = _folder_cache
         return sorted_clips, date_by_id, keywords_by_id, proxy_by_id
+
+    # Cache miss: fetch clip list if the caller didn't supply it.
+    if raw is None:
+        raw = _as_sequence(folder.GetClipList())
 
     # Build per-clip data once.
     date_by_id: dict[str, Any] = {}
@@ -232,12 +239,12 @@ def _get_folder_cache(folder: Any) -> tuple[list, dict, dict, dict]:
         proxy_by_id[mid] = clip.GetClipProperty("Proxy Media Path") or ""
 
     sorted_clips = sorted(raw, key=lambda c: (date_by_id[c.GetMediaId()], c.GetName() or ""))
-    _folder_cache = (cache_key, sorted_clips, date_by_id, keywords_by_id, proxy_by_id)
+    _folder_cache = (folder_name, sorted_clips, date_by_id, keywords_by_id, proxy_by_id)
     return sorted_clips, date_by_id, keywords_by_id, proxy_by_id
 
 
-def _get_sorted_clips(folder: Any) -> list:
-    sorted_clips, _, _, _ = _get_folder_cache(folder)
+def _get_sorted_clips(folder: Any, raw: list | None = None) -> list:
+    sorted_clips, _, _, _ = _get_folder_cache(folder, raw)
     return sorted_clips
 
 
@@ -272,12 +279,17 @@ def _find_folder_for_clip(folder: Any, target_id: str) -> Any | None:
     return None
 
 
-def _resolve_folder(media_pool: Any, current_item: Any) -> Any | None:
-    """Return the Media Pool folder for current_item.
+def _resolve_folder(
+    media_pool: Any, current_item: Any
+) -> tuple[Any, list] | tuple[None, None]:
+    """Return (folder, raw_clip_list) for current_item.
 
     Tries GetCurrentFolder() first (fast). Falls back to a tree walk when
     Resolve has no current folder set — which happens when the clip is
-    selected from the timeline rather than the Media Pool browser."""
+    selected from the timeline rather than the Media Pool browser.
+
+    Returns the raw clip list alongside the folder so callers can pass it
+    directly to _get_folder_cache and avoid a redundant GetClipList() IPC call."""
     folder = media_pool.GetCurrentFolder()
     if folder is not None:
         # Verify the current clip actually lives in this folder; if not
@@ -285,13 +297,14 @@ def _resolve_folder(media_pool: Any, current_item: Any) -> Any | None:
         current_id = current_item.GetMediaId()
         clips = _as_sequence(folder.GetClipList())
         if any(c.GetMediaId() == current_id for c in clips):
-            return folder
+            return folder, clips
 
     # Fall back: walk the full tree to find the right folder.
     root = media_pool.GetRootFolder()
     if root is None:
-        return None
-    return _find_folder_for_clip(root, current_item.GetMediaId())
+        return None, None
+    fallback = _find_folder_for_clip(root, current_item.GetMediaId())
+    return fallback, None  # raw unknown; _get_folder_cache will fetch it
 
 
 def navigate_clip(
@@ -318,11 +331,11 @@ def navigate_clip(
         return None, timing
 
     t0 = time.perf_counter()
-    folder = _resolve_folder(media_pool, current_item)
+    folder, raw = _resolve_folder(media_pool, current_item)
     if folder is None:
         return None, timing
 
-    clips = _get_sorted_clips(folder)
+    clips, _, _, _ = _get_folder_cache(folder, raw)
     timing["folder_cache_ms"] = (time.perf_counter() - t0) * 1000
     if not clips:
         return None, timing
@@ -338,11 +351,6 @@ def navigate_clip(
 
     new_item = clips[new_index]
     media_pool.SetSelectedClip(new_item)
-    # Pre-compute suggestions while the folder cache is warm so the subsequent
-    # /api/clip/suggestions request can be served instantly from _last_suggestions.
-    t1 = time.perf_counter()
-    suggest_keywords(resolve, current_item=new_item)
-    timing["suggest_ms"] = (time.perf_counter() - t1) * 1000
     return new_item, timing
 
 
@@ -372,11 +380,11 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     if current_item is None:
         return [], {"reason": "no current item"}
 
-    folder = _resolve_folder(media_pool, current_item)
+    folder, raw = _resolve_folder(media_pool, current_item)
     if folder is None:
         return [], {"reason": "no folder"}
 
-    clips, date_by_id, keywords_by_id, _ = _get_folder_cache(folder)
+    clips, date_by_id, keywords_by_id, _ = _get_folder_cache(folder, raw)
     if not clips:
         return [], {"reason": "no clips in folder"}
 

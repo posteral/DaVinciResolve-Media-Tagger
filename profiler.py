@@ -24,7 +24,8 @@ _lock = threading.Lock()
 
 _session: dict[str, Any] = {
     "started_at": datetime.now().isoformat(timespec="seconds"),
-    "navigate": [],       # [{total_ms, resolve_ipc_ms, folder_cache_ms, suggest_ms, get_keywords_ms}]
+    "navigate": [],       # [{total_ms, resolve_ipc_ms, folder_cache_ms, get_keywords_ms}]
+    "suggest_bg": [],     # [suggest_ms] — background suggest_keywords timings
     "filmstrip": [],      # [{total_ms, probe_ms, extract_ms, encode_ms, frames}]
     "filmstrip_cache_hits": 0,
 }
@@ -39,11 +40,15 @@ def record_navigate(
         "total_ms": round(total_ms),
         "resolve_ipc_ms": round(resolve_ipc_ms),
         "folder_cache_ms": round((timing or {}).get("folder_cache_ms", 0)),
-        "suggest_ms": round((timing or {}).get("suggest_ms", 0)),
         "get_keywords_ms": round((timing or {}).get("get_keywords_ms", 0)),
     }
     with _lock:
         _session["navigate"].append(entry)
+
+
+def record_suggest_bg(suggest_ms: float) -> None:
+    with _lock:
+        _session["suggest_bg"].append(round(suggest_ms))
 
 
 def record_filmstrip(
@@ -87,6 +92,7 @@ def _stats(values: list[float]) -> dict:
 def summary() -> dict:
     with _lock:
         nav = _session["navigate"]
+        suggest_bg = _session["suggest_bg"]
         film = _session["filmstrip"]
         hits = _session["filmstrip_cache_hits"]
 
@@ -98,9 +104,9 @@ def summary() -> dict:
             "resolve_ipc": _stats([r["resolve_ipc_ms"] for r in nav]),
             "overhead": _stats([r["total_ms"] - r["resolve_ipc_ms"] for r in nav]),
             "folder_cache": _stats([r["folder_cache_ms"] for r in nav]),
-            "suggest": _stats([r["suggest_ms"] for r in nav]),
             "get_keywords": _stats([r["get_keywords_ms"] for r in nav]),
         },
+        "suggest_bg": _stats(suggest_bg),
         "filmstrip": {
             **_stats([r["total_ms"] for r in film]),
             "probe": _stats([r["probe_ms"] for r in film]),
@@ -111,6 +117,7 @@ def summary() -> dict:
         },
         "raw": {
             "navigate": nav,
+            "suggest_bg": suggest_bg,
             "filmstrip": film,
         },
     }

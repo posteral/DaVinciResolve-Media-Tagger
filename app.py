@@ -308,11 +308,32 @@ def navigate_clip():
         return jsonify({"error": str(exc)}), 500
 
     t_total = time.perf_counter() - t0
+
+    # Pre-warm proximity suggestions in background so _last_suggestions is ready
+    # before the browser requests /api/clip/suggestions. Uses lock-with-timeout
+    # so it never blocks an interactive request.
+    def _suggest_bg(captured_item=item):
+        t_s = time.perf_counter()
+        for _ in range(10):
+            acquired = _resolve_lock.acquire(timeout=0.1)
+            if acquired:
+                try:
+                    resolve = _get_resolve()
+                    resolve_api.suggest_keywords(resolve, current_item=captured_item)
+                finally:
+                    _resolve_lock.release()
+                suggest_ms = (time.perf_counter() - t_s) * 1000
+                profiler.record_suggest_bg(suggest_ms)
+                print(f"[navigate] suggest_bg={suggest_ms:.0f}ms")
+                return
+            time.sleep(0.05)
+
+    threading.Thread(target=_suggest_bg, daemon=True).start()
+
     print(
         f"[navigate] clip={name!r} total={t_total*1000:.0f}ms"
         f" resolve_ipc={t_ipc*1000:.0f}ms"
         f" folder_cache={nav_timing.get('folder_cache_ms', 0):.0f}ms"
-        f" suggest={nav_timing.get('suggest_ms', 0):.0f}ms"
         f" get_keywords={nav_timing.get('get_keywords_ms', 0):.0f}ms"
     )
     profiler.record_navigate(t_total * 1000, t_ipc * 1000, nav_timing)
