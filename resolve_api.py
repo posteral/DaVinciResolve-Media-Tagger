@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import os
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -293,47 +294,56 @@ def _resolve_folder(media_pool: Any, current_item: Any) -> Any | None:
     return _find_folder_for_clip(root, current_item.GetMediaId())
 
 
-def navigate_clip(resolve: Any, direction: int) -> Any | None:
+def navigate_clip(
+    resolve: Any, direction: int
+) -> tuple[Any, dict[str, float]] | tuple[None, dict[str, float]]:
     """Select the next (+1) or previous (-1) clip in the current Media Pool
     folder, ordered by Date Created (matching Resolve's default UI sort).
-    Returns the newly selected MediaPoolItem, or None if at boundary."""
+    Returns (MediaPoolItem, timing_ms) where timing_ms contains sub-phase
+    breakdowns, or (None, timing_ms) if at boundary or on error."""
+    timing: dict[str, float] = {}
+
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
-        return None
+        return None, timing
     project = project_manager.GetCurrentProject()
     if project is None:
-        return None
+        return None, timing
     media_pool = project.GetMediaPool()
     if media_pool is None:
-        return None
+        return None, timing
 
     current_item = get_selected_media_pool_item(resolve)
     if current_item is None:
-        return None
+        return None, timing
 
+    t0 = time.perf_counter()
     folder = _resolve_folder(media_pool, current_item)
     if folder is None:
-        return None
+        return None, timing
 
     clips = _get_sorted_clips(folder)
+    timing["folder_cache_ms"] = (time.perf_counter() - t0) * 1000
     if not clips:
-        return None
+        return None, timing
 
     current_id = current_item.GetMediaId()
     indices = [i for i, c in enumerate(clips) if c.GetMediaId() == current_id]
     if not indices:
-        return None
+        return None, timing
 
     new_index = indices[0] + direction
     if new_index < 0 or new_index >= len(clips):
-        return None  # already at boundary
+        return None, timing  # already at boundary
 
     new_item = clips[new_index]
     media_pool.SetSelectedClip(new_item)
     # Pre-compute suggestions while the folder cache is warm so the subsequent
     # /api/clip/suggestions request can be served instantly from _last_suggestions.
+    t1 = time.perf_counter()
     suggest_keywords(resolve, current_item=new_item)
-    return new_item
+    timing["suggest_ms"] = (time.perf_counter() - t1) * 1000
+    return new_item, timing
 
 
 def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str], dict]:

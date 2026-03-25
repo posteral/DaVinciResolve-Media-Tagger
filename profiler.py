@@ -6,7 +6,7 @@ Call dump() or hit GET /api/profiler/report to write a JSON report.
 
 Usage in app.py:
     import profiler
-    profiler.record_navigate(total_ms, resolve_ipc_ms)
+    profiler.record_navigate(total_ms, resolve_ipc_ms, timing)
     profiler.record_filmstrip(total_ms, probe_ms, extract_ms, encode_ms, frames)
     profiler.record_filmstrip_cache_hit()
 """
@@ -24,18 +24,26 @@ _lock = threading.Lock()
 
 _session: dict[str, Any] = {
     "started_at": datetime.now().isoformat(timespec="seconds"),
-    "navigate": [],       # [{total_ms, resolve_ipc_ms}]
+    "navigate": [],       # [{total_ms, resolve_ipc_ms, folder_cache_ms, suggest_ms, get_keywords_ms}]
     "filmstrip": [],      # [{total_ms, probe_ms, extract_ms, encode_ms, frames}]
     "filmstrip_cache_hits": 0,
 }
 
 
-def record_navigate(total_ms: float, resolve_ipc_ms: float) -> None:
+def record_navigate(
+    total_ms: float,
+    resolve_ipc_ms: float,
+    timing: dict[str, float] | None = None,
+) -> None:
+    entry: dict[str, Any] = {
+        "total_ms": round(total_ms),
+        "resolve_ipc_ms": round(resolve_ipc_ms),
+        "folder_cache_ms": round((timing or {}).get("folder_cache_ms", 0)),
+        "suggest_ms": round((timing or {}).get("suggest_ms", 0)),
+        "get_keywords_ms": round((timing or {}).get("get_keywords_ms", 0)),
+    }
     with _lock:
-        _session["navigate"].append({
-            "total_ms": round(total_ms),
-            "resolve_ipc_ms": round(resolve_ipc_ms),
-        })
+        _session["navigate"].append(entry)
 
 
 def record_filmstrip(
@@ -89,6 +97,9 @@ def summary() -> dict:
             **_stats([r["total_ms"] for r in nav]),
             "resolve_ipc": _stats([r["resolve_ipc_ms"] for r in nav]),
             "overhead": _stats([r["total_ms"] - r["resolve_ipc_ms"] for r in nav]),
+            "folder_cache": _stats([r["folder_cache_ms"] for r in nav]),
+            "suggest": _stats([r["suggest_ms"] for r in nav]),
+            "get_keywords": _stats([r["get_keywords_ms"] for r in nav]),
         },
         "filmstrip": {
             **_stats([r["total_ms"] for r in film]),

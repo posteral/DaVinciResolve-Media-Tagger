@@ -291,12 +291,14 @@ def navigate_clip():
         with _resolve_lock:
             t_lock = time.perf_counter()
             resolve = _get_resolve()
-            item = resolve_api.navigate_clip(resolve, direction)
+            item, nav_timing = resolve_api.navigate_clip(resolve, direction)
             if item is None:
                 return jsonify({"error": "No more clips"}), 404
             name = item.GetName() or "<unnamed clip>"
             media_id = item.GetMediaId()
+            t_kw0 = time.perf_counter()
             keywords = resolve_api.get_keywords(item)
+            nav_timing["get_keywords_ms"] = (time.perf_counter() - t_kw0) * 1000
             keywords_stored = resolve_api._normalize_keywords(
                 item.GetMetadata("Keywords") or item.GetClipProperty("Keywords") or ""
             )
@@ -306,8 +308,14 @@ def navigate_clip():
         return jsonify({"error": str(exc)}), 500
 
     t_total = time.perf_counter() - t0
-    print(f"[navigate] clip={name!r} total={t_total*1000:.0f}ms resolve_ipc={t_ipc*1000:.0f}ms")
-    profiler.record_navigate(t_total * 1000, t_ipc * 1000)
+    print(
+        f"[navigate] clip={name!r} total={t_total*1000:.0f}ms"
+        f" resolve_ipc={t_ipc*1000:.0f}ms"
+        f" folder_cache={nav_timing.get('folder_cache_ms', 0):.0f}ms"
+        f" suggest={nav_timing.get('suggest_ms', 0):.0f}ms"
+        f" get_keywords={nav_timing.get('get_keywords_ms', 0):.0f}ms"
+    )
+    profiler.record_navigate(t_total * 1000, t_ipc * 1000, nav_timing)
     return jsonify({
         "clip": name,
         "media_id": media_id,
