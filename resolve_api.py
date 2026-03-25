@@ -332,11 +332,15 @@ def navigate_clip(
 
     t0 = time.perf_counter()
     folder, raw = _resolve_folder(media_pool, current_item)
+    timing["resolve_folder_ms"] = (time.perf_counter() - t0) * 1000
     if folder is None:
         return None, timing
 
+    cache_was_cold = _folder_cache is None or _folder_cache[0] != folder.GetName()
+    t1 = time.perf_counter()
     clips, _, _, _ = _get_folder_cache(folder, raw)
-    timing["folder_cache_ms"] = (time.perf_counter() - t0) * 1000
+    timing["folder_cache_ms"] = (time.perf_counter() - t1) * 1000
+    timing["cache_miss"] = cache_was_cold
     if not clips:
         return None, timing
 
@@ -350,7 +354,9 @@ def navigate_clip(
         return None, timing  # already at boundary
 
     new_item = clips[new_index]
+    t2 = time.perf_counter()
     media_pool.SetSelectedClip(new_item)
+    timing["set_selected_ms"] = (time.perf_counter() - t2) * 1000
     return new_item, timing
 
 

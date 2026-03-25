@@ -290,19 +290,23 @@ def navigate_clip():
     try:
         with _resolve_lock:
             t_lock = time.perf_counter()
+            nav_timing = {}
+            nav_timing["lock_wait_ms"] = (t_lock - t0) * 1000
             resolve = _get_resolve()
             item, nav_timing = resolve_api.navigate_clip(resolve, direction)
+            nav_timing["lock_wait_ms"] = (t_lock - t0) * 1000
             if item is None:
                 return jsonify({"error": "No more clips"}), 404
+            t_post0 = time.perf_counter()
             name = item.GetName() or "<unnamed clip>"
             media_id = item.GetMediaId()
-            t_kw0 = time.perf_counter()
             keywords = resolve_api.get_keywords(item)
-            nav_timing["get_keywords_ms"] = (time.perf_counter() - t_kw0) * 1000
             keywords_stored = resolve_api._normalize_keywords(
                 item.GetMetadata("Keywords") or item.GetClipProperty("Keywords") or ""
             )
             proxy_path = item.GetClipProperty("Proxy Media Path") or ""
+            nav_timing["post_nav_ipc_ms"] = (time.perf_counter() - t_post0) * 1000
+            nav_timing["get_keywords_ms"] = nav_timing["post_nav_ipc_ms"]  # keep compat
             t_ipc = time.perf_counter() - t_lock
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -332,9 +336,12 @@ def navigate_clip():
 
     print(
         f"[navigate] clip={name!r} total={t_total*1000:.0f}ms"
-        f" resolve_ipc={t_ipc*1000:.0f}ms"
+        f" lock_wait={nav_timing.get('lock_wait_ms', 0):.0f}ms"
+        f" resolve_folder={nav_timing.get('resolve_folder_ms', 0):.0f}ms"
         f" folder_cache={nav_timing.get('folder_cache_ms', 0):.0f}ms"
-        f" get_keywords={nav_timing.get('get_keywords_ms', 0):.0f}ms"
+        f" {'MISS' if nav_timing.get('cache_miss') else 'hit'}"
+        f" set_selected={nav_timing.get('set_selected_ms', 0):.0f}ms"
+        f" post_nav_ipc={nav_timing.get('post_nav_ipc_ms', 0):.0f}ms"
     )
     profiler.record_navigate(t_total * 1000, t_ipc * 1000, nav_timing)
     return jsonify({

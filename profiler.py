@@ -24,7 +24,8 @@ _lock = threading.Lock()
 
 _session: dict[str, Any] = {
     "started_at": datetime.now().isoformat(timespec="seconds"),
-    "navigate": [],       # [{total_ms, resolve_ipc_ms, folder_cache_ms, get_keywords_ms}]
+    "navigate": [],       # [{total_ms, resolve_ipc_ms, lock_wait_ms, resolve_folder_ms,
+                          #    folder_cache_ms, cache_miss, set_selected_ms, post_nav_ipc_ms}]
     "suggest_bg": [],     # [suggest_ms] — background suggest_keywords timings
     "filmstrip": [],      # [{total_ms, probe_ms, extract_ms, encode_ms, frames}]
     "filmstrip_cache_hits": 0,
@@ -34,13 +35,18 @@ _session: dict[str, Any] = {
 def record_navigate(
     total_ms: float,
     resolve_ipc_ms: float,
-    timing: dict[str, float] | None = None,
+    timing: dict[str, Any] | None = None,
 ) -> None:
+    t = timing or {}
     entry: dict[str, Any] = {
         "total_ms": round(total_ms),
         "resolve_ipc_ms": round(resolve_ipc_ms),
-        "folder_cache_ms": round((timing or {}).get("folder_cache_ms", 0)),
-        "get_keywords_ms": round((timing or {}).get("get_keywords_ms", 0)),
+        "lock_wait_ms": round(t.get("lock_wait_ms", 0)),
+        "resolve_folder_ms": round(t.get("resolve_folder_ms", 0)),
+        "folder_cache_ms": round(t.get("folder_cache_ms", 0)),
+        "cache_miss": bool(t.get("cache_miss", False)),
+        "set_selected_ms": round(t.get("set_selected_ms", 0)),
+        "post_nav_ipc_ms": round(t.get("post_nav_ipc_ms", 0)),
     }
     with _lock:
         _session["navigate"].append(entry)
@@ -96,6 +102,7 @@ def summary() -> dict:
         film = _session["filmstrip"]
         hits = _session["filmstrip_cache_hits"]
 
+    cache_misses = sum(1 for r in nav if r.get("cache_miss"))
     report: dict[str, Any] = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "session_started_at": _session["started_at"],
@@ -103,8 +110,13 @@ def summary() -> dict:
             **_stats([r["total_ms"] for r in nav]),
             "resolve_ipc": _stats([r["resolve_ipc_ms"] for r in nav]),
             "overhead": _stats([r["total_ms"] - r["resolve_ipc_ms"] for r in nav]),
+            "lock_wait": _stats([r.get("lock_wait_ms", 0) for r in nav]),
+            "resolve_folder": _stats([r.get("resolve_folder_ms", 0) for r in nav]),
             "folder_cache": _stats([r["folder_cache_ms"] for r in nav]),
-            "get_keywords": _stats([r["get_keywords_ms"] for r in nav]),
+            "cache_misses": cache_misses,
+            "cache_miss_rate": f"{cache_misses / len(nav) * 100:.1f}%" if nav else "n/a",
+            "set_selected": _stats([r.get("set_selected_ms", 0) for r in nav]),
+            "post_nav_ipc": _stats([r.get("post_nav_ipc_ms", 0) for r in nav]),
         },
         "suggest_bg": _stats(suggest_bg),
         "filmstrip": {
