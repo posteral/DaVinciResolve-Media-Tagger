@@ -306,6 +306,16 @@ def navigate_clip():
     })
 
 
+@app.route("/api/clip/neighbours", methods=["GET"])
+def clip_neighbours():
+    """Return prev/next proxy paths for a clip, read from cache only — no Resolve IPC."""
+    media_id = request.args.get("media_id", "")
+    if not media_id:
+        return jsonify({"prev_path": "", "next_path": ""})
+    prev_path, next_path = resolve_api.get_neighbours(media_id)
+    return jsonify({"prev_path": prev_path, "next_path": next_path})
+
+
 @app.route("/api/clip/keywords", methods=["POST"])
 def set_keywords():
     global _catalog_refresh_pending

@@ -210,32 +210,52 @@ def invalidate_folder_cache() -> None:
     _last_suggestions = None
 
 
-def _get_folder_cache(folder: Any) -> tuple[list, dict, dict]:
-    """Return (sorted_clips, date_by_id, keywords_by_id) for the folder,
+def _get_folder_cache(folder: Any) -> tuple[list, dict, dict, dict]:
+    """Return (sorted_clips, date_by_id, keywords_by_id, proxy_by_id) for the folder,
     building and caching all per-clip data in a single pass."""
     global _folder_cache
     raw = _as_sequence(folder.GetClipList())
     cache_key = (folder.GetName(), len(raw))
     if _folder_cache is not None and _folder_cache[0] == cache_key:
-        _, sorted_clips, date_by_id, keywords_by_id = _folder_cache
-        return sorted_clips, date_by_id, keywords_by_id
+        _, sorted_clips, date_by_id, keywords_by_id, proxy_by_id = _folder_cache
+        return sorted_clips, date_by_id, keywords_by_id, proxy_by_id
 
     # Build per-clip data once.
     date_by_id: dict[str, Any] = {}
     keywords_by_id: dict[str, list[str]] = {}
+    proxy_by_id: dict[str, str] = {}
     for clip in raw:
         mid = clip.GetMediaId()
         date_by_id[mid] = _clip_date_key(clip)[0]
         keywords_by_id[mid] = get_keywords(clip)
+        proxy_by_id[mid] = clip.GetClipProperty("Proxy Media Path") or ""
 
     sorted_clips = sorted(raw, key=lambda c: (date_by_id[c.GetMediaId()], c.GetName() or ""))
-    _folder_cache = (cache_key, sorted_clips, date_by_id, keywords_by_id)
-    return sorted_clips, date_by_id, keywords_by_id
+    _folder_cache = (cache_key, sorted_clips, date_by_id, keywords_by_id, proxy_by_id)
+    return sorted_clips, date_by_id, keywords_by_id, proxy_by_id
 
 
 def _get_sorted_clips(folder: Any) -> list:
-    sorted_clips, _, _ = _get_folder_cache(folder)
+    sorted_clips, _, _, _ = _get_folder_cache(folder)
     return sorted_clips
+
+
+def get_neighbours(media_id: str) -> tuple[str, str]:
+    """Return (prev_proxy_path, next_proxy_path) for the clip with the given media_id.
+
+    Reads from _folder_cache only — zero Resolve IPC. Returns ('', '') if cache
+    is cold or the clip is not found."""
+    if _folder_cache is None:
+        return "", ""
+    _, sorted_clips, _, _, proxy_by_id = _folder_cache
+    ids = [c.GetMediaId() for c in sorted_clips]
+    try:
+        idx = ids.index(media_id)
+    except ValueError:
+        return "", ""
+    prev_path = proxy_by_id.get(ids[idx - 1], "") if idx > 0 else ""
+    next_path = proxy_by_id.get(ids[idx + 1], "") if idx < len(ids) - 1 else ""
+    return prev_path, next_path
 
 
 def _find_folder_for_clip(folder: Any, target_id: str) -> Any | None:
@@ -346,7 +366,7 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
     if folder is None:
         return [], {"reason": "no folder"}
 
-    clips, date_by_id, keywords_by_id = _get_folder_cache(folder)
+    clips, date_by_id, keywords_by_id, _ = _get_folder_cache(folder)
     if not clips:
         return [], {"reason": "no clips in folder"}
 

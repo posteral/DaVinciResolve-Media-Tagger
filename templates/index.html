@@ -786,6 +786,8 @@
       } else {
         loadSuggestions(data.media_id);
       }
+      // Prefetch filmstrip for prev/next clips in the background.
+      prefetchNeighbours(data.media_id);
       initKeywordInput();
       document.getElementById('prev-btn').style.display = 'inline-flex';
       document.getElementById('next-btn').style.display = 'inline-flex';
@@ -1104,56 +1106,105 @@
       _highlightOverlappingSuggestions();
     }
 
+    async function _fetchFilmstripData(filePath) {
+      const url = '/api/clip/filmstrip?' + new URLSearchParams({ path: filePath });
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return res.json();
+    }
+
     async function loadFilmstrip(filePath) {
       const strip = document.getElementById('filmstrip');
       if (!strip || !filePath) return;
 
-      // Show placeholder frames while loading.
+      // Show placeholder frames while loading (skipped if cache hit).
+      const cached = _filmstripCache.get(filePath);
       strip.style.display = 'flex';
       const FRAME_COUNT = 5;
       const placeholders = [];
-      for (let i = 0; i < FRAME_COUNT; i++) {
-        const wrap = document.createElement('div');
-        wrap.className = 'filmstrip-frame-wrap';
-        const ph = document.createElement('div');
-        ph.style.cssText = 'width:160px;height:90px;background:#222;border-radius:2px;';
-        wrap.appendChild(ph);
-        strip.appendChild(wrap);
-        placeholders.push({ wrap, ph });
+      if (!cached) {
+        for (let i = 0; i < FRAME_COUNT; i++) {
+          const wrap = document.createElement('div');
+          wrap.className = 'filmstrip-frame-wrap';
+          const ph = document.createElement('div');
+          ph.style.cssText = 'width:160px;height:90px;background:#222;border-radius:2px;';
+          wrap.appendChild(ph);
+          strip.appendChild(wrap);
+          placeholders.push({ wrap, ph });
+        }
       }
 
       try {
-        const url = '/api/clip/filmstrip?' + new URLSearchParams({ path: filePath });
-        const res = await fetch(url);
-        if (!res.ok) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
-        const data = await res.json();
+        const data = cached || await _fetchFilmstripData(filePath);
+        if (!data) { strip.innerHTML = ''; strip.style.display = 'none'; return; }
+        if (!cached) _filmstripCache.set(filePath, data);
         const frames = data.frames || [];
 
-        // Replace placeholders with real frames; remove extras if fewer than 5 returned.
-        placeholders.forEach(({ wrap, ph }, i) => {
-          if (i >= frames.length) { wrap.remove(); return; }
-          const img = document.createElement('img');
-          img.className = 'filmstrip-frame';
-          img.alt = 'Frame ' + (i + 1);
-          img.src = 'data:image/png;base64,' + frames[i];
-          ph.replaceWith(img);
-
-          // Use the midpoint frame (index 2, 50%) as the card thumbnail too —
-          // avoids a separate /api/clip/thumbnail round-trip.
-          if (i === 2) {
-            const thumbImg = document.getElementById('clip-thumbnail');
-            const thumbPh  = document.getElementById('thumb-placeholder');
-            if (thumbImg && thumbPh) {
-              thumbImg.src = img.src;
-              thumbImg.style.display = 'block';
-              thumbPh.style.display = 'none';
+        if (cached) {
+          // Cache hit: render directly into the strip (no placeholders to replace).
+          strip.innerHTML = '';
+          frames.forEach((b64, i) => {
+            const wrap = document.createElement('div');
+            wrap.className = 'filmstrip-frame-wrap';
+            const img = document.createElement('img');
+            img.className = 'filmstrip-frame';
+            img.alt = 'Frame ' + (i + 1);
+            img.src = 'data:image/png;base64,' + b64;
+            wrap.appendChild(img);
+            strip.appendChild(wrap);
+            if (i === 2) {
+              const thumbImg = document.getElementById('clip-thumbnail');
+              const thumbPh  = document.getElementById('thumb-placeholder');
+              if (thumbImg && thumbPh) {
+                thumbImg.src = img.src;
+                thumbImg.style.display = 'block';
+                thumbPh.style.display = 'none';
+              }
             }
-          }
-        });
+          });
+        } else {
+          // Replace placeholders with real frames; remove extras if fewer than 5 returned.
+          placeholders.forEach(({ wrap, ph }, i) => {
+            if (i >= frames.length) { wrap.remove(); return; }
+            const img = document.createElement('img');
+            img.className = 'filmstrip-frame';
+            img.alt = 'Frame ' + (i + 1);
+            img.src = 'data:image/png;base64,' + frames[i];
+            ph.replaceWith(img);
+
+            // Use the midpoint frame (index 2, 50%) as the card thumbnail too —
+            // avoids a separate /api/clip/thumbnail round-trip.
+            if (i === 2) {
+              const thumbImg = document.getElementById('clip-thumbnail');
+              const thumbPh  = document.getElementById('thumb-placeholder');
+              if (thumbImg && thumbPh) {
+                thumbImg.src = img.src;
+                thumbImg.style.display = 'block';
+                thumbPh.style.display = 'none';
+              }
+            }
+          });
+        }
       } catch (_) {
         strip.innerHTML = '';
         strip.style.display = 'none';
       }
+    }
+
+    async function prefetchNeighbours(mediaId) {
+      if (!mediaId) return;
+      try {
+        const res = await fetch('/api/clip/neighbours?' + new URLSearchParams({ media_id: mediaId }));
+        if (!res.ok) return;
+        const { prev_path, next_path } = await res.json();
+        for (const path of [prev_path, next_path]) {
+          if (path && !_filmstripCache.has(path)) {
+            _fetchFilmstripData(path).then(data => {
+              if (data) _filmstripCache.set(path, data);
+            }).catch(() => {});
+          }
+        }
+      } catch (_) {}
     }
 
     async function loadAiSuggestion(filePath, proximitySuggestions = []) {
@@ -1210,6 +1261,10 @@
 
     let _catalog = null;       // null = not yet fetched with data
     let _catalogPromise = null; // in-flight fetch, shared across concurrent callers
+
+    // Filmstrip prefetch cache: file_path → {frames: [...]} response data.
+    // Populated in the background after each clip renders; checked before fetching.
+    const _filmstripCache = new Map();
 
     // Pinned keywords — loaded once at startup from /api/config/pinned-keywords.
     let _pinnedKeywords = new Set();
