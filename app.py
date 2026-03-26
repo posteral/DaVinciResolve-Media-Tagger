@@ -364,6 +364,8 @@ def navigate_clip():
     print(
         f"[navigate] clip={name!r} total={t_total*1000:.0f}ms"
         f" lock_wait={nav_timing.get('lock_wait_ms', 0):.0f}ms"
+        f" pre_ipc={nav_timing.get('pre_ipc_ms', 0):.0f}ms"
+        f" get_selected_pre={nav_timing.get('get_selected_ms_pre', 0):.0f}ms"
         f" resolve_folder={nav_timing.get('resolve_folder_ms', 0):.0f}ms"
         f" folder_cache={nav_timing.get('folder_cache_ms', 0):.0f}ms"
         f" {'MISS' if nav_timing.get('cache_miss') else 'hit'}"

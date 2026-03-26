@@ -316,6 +316,7 @@ def navigate_clip(
     breakdowns, or (None, timing_ms) if at boundary or on error."""
     timing: dict[str, float] = {}
 
+    t_pre = time.perf_counter()
     project_manager = resolve.GetProjectManager()
     if project_manager is None:
         return None, timing
@@ -325,8 +326,11 @@ def navigate_clip(
     media_pool = project.GetMediaPool()
     if media_pool is None:
         return None, timing
+    timing["pre_ipc_ms"] = (time.perf_counter() - t_pre) * 1000
 
+    t_sel = time.perf_counter()
     current_item = get_selected_media_pool_item(resolve)
+    timing["get_selected_ms_pre"] = (time.perf_counter() - t_sel) * 1000
     if current_item is None:
         return None, timing
 
