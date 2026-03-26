@@ -401,7 +401,7 @@ def suggest_keywords_from_cache(media_id: str, keywords: list[str]) -> list[str]
                     first_seen[key] = kw
 
     ranked = sorted(best_score.keys(), key=lambda k: -best_score[k])
-    suggestions = [first_seen[k] for k in ranked[:10]]
+    suggestions = [first_seen[k] for k in ranked[:12]]
 
     global _last_suggestions
     _last_suggestions = (media_id, suggestions)
@@ -486,7 +486,7 @@ def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str],
                     first_seen[key] = kw
 
     ranked = sorted(best_score.keys(), key=lambda k: -best_score[k])
-    suggestions = [first_seen[k] for k in ranked[:10]]
+    suggestions = [first_seen[k] for k in ranked[:12]]
 
     global _last_suggestions
     _last_suggestions = (current_id, suggestions)
