@@ -333,8 +333,16 @@ def navigate_clip():
     # Pre-warm proximity suggestions in background so _last_suggestions is ready
     # before the browser requests /api/clip/suggestions. Uses lock-with-timeout
     # so it never blocks an interactive request.
-    def _suggest_bg(captured_item=item):
+    def _suggest_bg(captured_item=item, captured_id=media_id, captured_kws=keywords):
         t_s = time.perf_counter()
+        # Fast path: cache is warm — compute suggestions with zero Resolve IPC.
+        suggestions = resolve_api.suggest_keywords_from_cache(captured_id, captured_kws)
+        if suggestions is not None:
+            suggest_ms = (time.perf_counter() - t_s) * 1000
+            profiler.record_suggest_bg(suggest_ms)
+            print(f"[navigate] suggest_bg={suggest_ms:.0f}ms (cache)")
+            return
+        # Slow path: cache is cold — need the lock for Resolve IPC.
         for _ in range(10):
             acquired = _resolve_lock.acquire(timeout=0.1)
             if acquired:
@@ -345,7 +353,7 @@ def navigate_clip():
                     _resolve_lock.release()
                 suggest_ms = (time.perf_counter() - t_s) * 1000
                 profiler.record_suggest_bg(suggest_ms)
-                print(f"[navigate] suggest_bg={suggest_ms:.0f}ms")
+                print(f"[navigate] suggest_bg={suggest_ms:.0f}ms (ipc)")
                 return
             time.sleep(0.05)
 

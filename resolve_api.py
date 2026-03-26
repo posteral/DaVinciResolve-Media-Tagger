@@ -360,6 +360,54 @@ def navigate_clip(
     return new_item, timing
 
 
+def suggest_keywords_from_cache(media_id: str, keywords: list[str]) -> list[str] | None:
+    """Compute proximity suggestions from _folder_cache only — zero Resolve IPC.
+
+    Returns the suggestion list, or None if the cache is cold or the clip is
+    not found (caller should fall back to suggest_keywords with the lock)."""
+    if _folder_cache is None:
+        return None
+
+    _, sorted_clips, date_by_id, keywords_by_id, _ = _folder_cache
+
+    current_index = next(
+        (i for i, c in enumerate(sorted_clips) if c.GetMediaId() == media_id), None
+    )
+    if current_index is None:
+        return None
+
+    current_kws = {k.lower() for k in keywords}
+
+    WINDOW = 50
+    lo = max(0, current_index - WINDOW)
+    hi = min(len(sorted_clips), current_index + WINDOW + 1)
+
+    best_score: dict[str, float] = {}
+    first_seen: dict[str, str] = {}
+    for i in range(lo, hi):
+        c = sorted_clips[i]
+        cid = c.GetMediaId()
+        if cid == media_id:
+            continue
+        if date_by_id.get(cid, datetime.max) == datetime.max:
+            continue
+        weight = 1.0 / abs(i - current_index)
+        for kw in keywords_by_id.get(cid, []):
+            key = kw.lower()
+            if key not in current_kws:
+                if weight > best_score.get(key, 0.0):
+                    best_score[key] = weight
+                if key not in first_seen or (kw[0].isupper() and not first_seen[key][0].isupper()):
+                    first_seen[key] = kw
+
+    ranked = sorted(best_score.keys(), key=lambda k: -best_score[k])
+    suggestions = [first_seen[k] for k in ranked[:10]]
+
+    global _last_suggestions
+    _last_suggestions = (media_id, suggestions)
+    return suggestions
+
+
 def suggest_keywords(resolve: Any, current_item: Any = None) -> tuple[list[str], dict]:
     """Return up to 5 keyword suggestions for the current clip.
 
