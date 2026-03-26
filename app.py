@@ -333,29 +333,20 @@ def navigate_clip():
     # Pre-warm proximity suggestions in background so _last_suggestions is ready
     # before the browser requests /api/clip/suggestions. Uses lock-with-timeout
     # so it never blocks an interactive request.
-    def _suggest_bg(captured_item=item, captured_id=media_id, captured_kws=keywords):
+    def _suggest_bg(captured_id=media_id, captured_kws=keywords):
         t_s = time.perf_counter()
-        # Fast path: cache is warm — compute suggestions with zero Resolve IPC.
+        # Cache-only: navigate_clip() already populated _folder_cache, so this
+        # succeeds in the vast majority of navigations with zero Resolve IPC.
+        # If the clip isn't found (e.g. first-ever load with cold cache), we
+        # give up rather than acquire the lock — the suggestions endpoint has
+        # its own fallback and pre-warming is best-effort only.
         suggestions = resolve_api.suggest_keywords_from_cache(captured_id, captured_kws)
+        suggest_ms = (time.perf_counter() - t_s) * 1000
         if suggestions is not None:
-            suggest_ms = (time.perf_counter() - t_s) * 1000
             profiler.record_suggest_bg(suggest_ms)
             print(f"[navigate] suggest_bg={suggest_ms:.0f}ms (cache)")
-            return
-        # Slow path: cache is cold — need the lock for Resolve IPC.
-        for _ in range(10):
-            acquired = _resolve_lock.acquire(timeout=0.1)
-            if acquired:
-                try:
-                    resolve = _get_resolve()
-                    resolve_api.suggest_keywords(resolve, current_item=captured_item)
-                finally:
-                    _resolve_lock.release()
-                suggest_ms = (time.perf_counter() - t_s) * 1000
-                profiler.record_suggest_bg(suggest_ms)
-                print(f"[navigate] suggest_bg={suggest_ms:.0f}ms (ipc)")
-                return
-            time.sleep(0.05)
+        else:
+            print(f"[navigate] suggest_bg skipped — cache miss, suggestions deferred")
 
     threading.Thread(target=_suggest_bg, daemon=True).start()
 
