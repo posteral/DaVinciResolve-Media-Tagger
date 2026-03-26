@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Auto-refresh when the browser tab regains focus. Switching back from Resolve
+  to the browser now automatically calls refresh(), so the displayed clip always
+  matches whatever is selected in Resolve without needing to click Refresh.
+
 ### Changed
 
 - Proximity suggestion cap raised from 10 to 12.
