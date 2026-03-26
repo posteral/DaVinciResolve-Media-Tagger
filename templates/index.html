@@ -1867,10 +1867,18 @@
       }
     });
 
-    // Auto-refresh when the tab regains focus (e.g. switching back from Resolve).
+    // Auto-refresh when the tab regains focus after being away for >2s.
+    // The 2s guard prevents a refresh from firing when the user simply clicks
+    // within the page (e.g. hitting Apply), which also triggers visibilitychange
+    // if the browser briefly loses and regains focus.
+    let _hiddenAt = 0;
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        refresh();
+      if (document.visibilityState === 'hidden') {
+        _hiddenAt = Date.now();
+      } else if (document.visibilityState === 'visible') {
+        if (Date.now() - _hiddenAt > 2000) {
+          refresh();
+        }
       }
     });
   </script>
