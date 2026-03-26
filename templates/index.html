@@ -894,6 +894,7 @@
       });
       container.innerHTML = '';
       container.appendChild(ul);
+      _removeSuggestionsMatchingKeywords(currentKeywords);
     }
 
     function askRemove(keyword) {

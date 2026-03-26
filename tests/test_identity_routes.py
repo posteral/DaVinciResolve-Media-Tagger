@@ -243,5 +243,340 @@ class TestConfirmIdentitiesRoute(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class TestIndexRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_returns_200_with_html(self):
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"html", resp.data.lower())
+
+
+class TestClipRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def _make_item(self, name="clip.mov", keywords=None, proxy_path="/proxy/clip.mxf"):
+        item = MagicMock()
+        item.GetName.return_value = name
+        item.GetMediaId.return_value = "media-001"
+        kws = keywords or ["alpha", "beta"]
+        item.GetMetadata.side_effect = lambda k=None: (
+            {"Keywords": ", ".join(kws)} if k is None else (", ".join(kws) if k == "Keywords" else None)
+        )
+        item.GetClipProperty.side_effect = lambda k: (
+            ", ".join(kws) if k == "Keywords"
+            else (proxy_path if k == "Proxy Media Path" else "")
+        )
+        return item
+
+    def test_returns_clip_data(self):
+        item = self._make_item()
+        with patch("resolve_api.get_selected_media_pool_item", return_value=item), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.get("/api/clip")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("clip", data)
+        self.assertIn("keywords", data)
+        self.assertIn("file_path", data)
+        self.assertIn("no_proxy", data)
+
+    def test_returns_404_when_no_item(self):
+        with patch("resolve_api.get_selected_media_pool_item", return_value=None), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.get("/api/clip")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_returns_500_on_exception(self):
+        with patch("app._get_resolve", side_effect=RuntimeError("Resolve busy")):
+            resp = self.client.get("/api/clip")
+        self.assertEqual(resp.status_code, 500)
+
+
+class TestClipThumbnailRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_returns_204_when_no_path(self):
+        with patch("resolve_api.get_selected_media_pool_item", return_value=None), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.get("/api/clip/thumbnail")
+        self.assertEqual(resp.status_code, 204)
+
+    def test_returns_200_png_with_path_param(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=b"PNGDATA"):
+            resp = self.client.get("/api/clip/thumbnail?path=/proxy/clip.mxf")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content_type, "image/png")
+        self.assertEqual(resp.data, b"PNGDATA")
+
+    def test_returns_204_when_ffmpeg_returns_none(self):
+        with patch("resolve_api.thumbnail_from_file_path", return_value=None):
+            resp = self.client.get("/api/clip/thumbnail?path=/proxy/clip.mxf")
+        self.assertEqual(resp.status_code, 204)
+
+
+class TestClipFilmstripRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_returns_204_when_no_path(self):
+        resp = self.client.get("/api/clip/filmstrip")
+        self.assertEqual(resp.status_code, 204)
+
+    def test_returns_frames_json(self):
+        fake_frames = [b"PNG1", b"PNG2", b"PNG3"]
+        with patch("resolve_api.frames_from_file_path_timed", return_value=(fake_frames, 10.0, 50.0)):
+            resp = self.client.get("/api/clip/filmstrip?path=/proxy/clip.mxf")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("frames", data)
+        self.assertEqual(len(data["frames"]), 3)
+
+    def test_empty_frames_returns_empty_list(self):
+        with patch("resolve_api.frames_from_file_path_timed", return_value=([], 0.0, 0.0)):
+            resp = self.client.get("/api/clip/filmstrip?path=/proxy/clip.mxf")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["frames"], [])
+
+
+class TestClipSuggestionsRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_uses_cached_suggestions_when_media_id_matches(self):
+        # Pre-seed the module-level last_suggestions
+        import resolve_api as ra
+        ra._last_suggestions = ("media-abc", ["close_kw", "nearby"])
+        resp = self.client.get("/api/clip/suggestions?media_id=media-abc")
+        ra._last_suggestions = None
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("close_kw", data["suggestions"])
+
+    def test_calls_suggest_keywords_when_not_cached(self):
+        import resolve_api as ra
+        ra._last_suggestions = None
+        with patch("resolve_api.suggest_keywords", return_value=(["kw1", "kw2"], {})), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.get("/api/clip/suggestions")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("suggestions", resp.get_json())
+
+
+class TestAiSuggestionRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_post_with_path_returns_suggestions(self):
+        with patch("resolve_api.ai_suggest_keywords", return_value=["mountain", "sunset"]):
+            resp = self.client.post(
+                "/api/clip/ai-suggestion",
+                json={"path": "/proxy/clip.mxf", "keywords": ["beach"], "suggestions": [], "catalog": []},
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("suggestions", data)
+        self.assertIn("mountain", data["suggestions"])
+
+    def test_get_with_path_returns_suggestions(self):
+        with patch("resolve_api.ai_suggest_keywords", return_value=["waterfall"]):
+            resp = self.client.get("/api/clip/ai-suggestion?path=/proxy/clip.mxf")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("waterfall", resp.get_json()["suggestions"])
+
+    def test_returns_empty_suggestions_when_no_path_and_no_item(self):
+        with patch("resolve_api.get_selected_media_pool_item", return_value=None), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post("/api/clip/ai-suggestion", json={})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["suggestions"], [])
+
+
+class TestKeywordsCatalogRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_returns_catalog_json(self):
+        import app as flask_app_mod
+        # Set the catalog directly
+        with flask_app_mod._catalog_lock:
+            flask_app_mod._keyword_catalog = ["alpha", "beta", "gamma"]
+            flask_app_mod._catalog_loaded = True
+            flask_app_mod._catalog_refresh_pending = False
+        resp = self.client.get("/api/keywords/catalog")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("keywords", data)
+        self.assertIn("alpha", data["keywords"])
+
+
+class TestNavigateClipRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def _make_item(self, name="clip.mov"):
+        item = MagicMock()
+        item.GetName.return_value = name
+        item.GetMediaId.return_value = "media-nav-001"
+        item.GetMetadata.side_effect = lambda k=None: (
+            {"Keywords": "alpha"} if k is None else ("alpha" if k == "Keywords" else None)
+        )
+        item.GetClipProperty.side_effect = lambda k: (
+            "alpha" if k == "Keywords" else ("/proxy/clip.mxf" if k == "Proxy Media Path" else "")
+        )
+        return item
+
+    def test_next_returns_200(self):
+        item = self._make_item("next_clip.mov")
+        with patch("resolve_api.navigate_clip", return_value=(item, {})), \
+             patch("resolve_api.get_keywords", return_value=["alpha"]), \
+             patch("resolve_api.suggest_keywords_from_cache", return_value=[]), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post("/api/clip/navigate", json={"direction": "next"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("clip", data)
+        self.assertIn("keywords", data)
+
+    def test_prev_returns_200(self):
+        item = self._make_item("prev_clip.mov")
+        with patch("resolve_api.navigate_clip", return_value=(item, {})), \
+             patch("resolve_api.get_keywords", return_value=["alpha"]), \
+             patch("resolve_api.suggest_keywords_from_cache", return_value=[]), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post("/api/clip/navigate", json={"direction": "prev"})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_bad_direction_returns_400(self):
+        resp = self.client.post("/api/clip/navigate", json={"direction": "sideways"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_at_boundary_returns_404(self):
+        with patch("resolve_api.navigate_clip", return_value=(None, {})), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post("/api/clip/navigate", json={"direction": "next"})
+        self.assertEqual(resp.status_code, 404)
+
+
+class TestProfilerRoutes(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_profiler_report_returns_200_json(self):
+        resp = self.client.get("/api/profiler/report")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("navigate", data)
+
+    def test_profiler_dump_returns_200_with_path(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import profiler
+            with patch("profiler.dump", return_value=f"{tmpdir}/report.json"):
+                resp = self.client.post("/api/profiler/dump")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("path", resp.get_json())
+
+    def test_profiler_filmstrip_cache_hit_returns_204(self):
+        resp = self.client.post("/api/profiler/filmstrip-cache-hit")
+        self.assertEqual(resp.status_code, 204)
+
+
+class TestClipNeighboursRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_with_media_id_returns_paths(self):
+        with patch("resolve_api.get_neighbours", return_value=("/p/prev.mxf", "/p/next.mxf")):
+            resp = self.client.get("/api/clip/neighbours?media_id=media-123")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["prev_path"], "/p/prev.mxf")
+        self.assertEqual(data["next_path"], "/p/next.mxf")
+
+    def test_without_media_id_returns_empty_paths(self):
+        resp = self.client.get("/api/clip/neighbours")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data["prev_path"], "")
+        self.assertEqual(data["next_path"], "")
+
+
+class TestSetKeywordsRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+        # Ensure the resolve lock is not held from previous tests' background threads
+        acquired = flask_app._resolve_lock.acquire(timeout=6.0)
+        if acquired:
+            flask_app._resolve_lock.release()
+
+    def _make_item(self, name="clip.mov"):
+        item = MagicMock()
+        item.GetName.return_value = name
+        return item
+
+    def test_returns_200_on_success(self):
+        item = self._make_item()
+        with patch("resolve_api.get_selected_media_pool_item", return_value=item), \
+             patch("resolve_api.set_keywords", return_value=True), \
+             patch("resolve_api.invalidate_folder_cache"), \
+             patch("threading.Thread"), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post(
+                "/api/clip/keywords",
+                json={"keywords": ["alpha", "beta"]},
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("keywords", data)
+
+    def test_returns_400_when_keywords_not_list(self):
+        resp = self.client.post("/api/clip/keywords", json={"keywords": "not-a-list"})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_returns_404_when_no_clip(self):
+        mock_resolve = MagicMock()
+        with patch("app._get_resolve", return_value=mock_resolve), \
+             patch("resolve_api.get_selected_media_pool_item", return_value=None):
+            resp = self.client.post("/api/clip/keywords", json={"keywords": ["alpha"]})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_returns_500_when_resolve_rejects_write(self):
+        item = self._make_item()
+        with patch("resolve_api.get_selected_media_pool_item", return_value=item), \
+             patch("resolve_api.set_keywords", return_value=False), \
+             patch("threading.Thread"), \
+             patch("app._get_resolve", return_value=MagicMock()):
+            resp = self.client.post("/api/clip/keywords", json={"keywords": ["alpha"]})
+        self.assertEqual(resp.status_code, 500)
+
+
+class TestPinnedKeywordsRoute(unittest.TestCase):
+    def setUp(self):
+        flask_app.app.config["TESTING"] = True
+        self.client = flask_app.app.test_client()
+
+    def test_returns_200_with_list(self):
+        resp = self.client.get("/api/config/pinned-keywords")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("pinned_keywords", data)
+        self.assertIsInstance(data["pinned_keywords"], list)
+
+
 if __name__ == "__main__":
     unittest.main()

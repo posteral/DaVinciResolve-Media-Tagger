@@ -568,5 +568,665 @@ class TestGetAllProjectKeywords(unittest.TestCase):
         self.assertEqual(result, ["apple", "Banana", "Zoo"])
 
 
+class TestAsSequence(unittest.TestCase):
+    """Tests for resolve_api._as_sequence."""
+
+    def test_none_returns_empty_list(self):
+        self.assertEqual(resolve_api._as_sequence(None), [])
+
+    def test_dict_returns_values(self):
+        result = resolve_api._as_sequence({"a": 1, "b": 2})
+        self.assertIn(1, result)
+        self.assertIn(2, result)
+        self.assertEqual(len(result), 2)
+
+    def test_dict_filters_none_values(self):
+        result = resolve_api._as_sequence({"a": 1, "b": None, "c": 3})
+        self.assertNotIn(None, result)
+        self.assertEqual(len(result), 2)
+
+    def test_list_returned_as_list(self):
+        self.assertEqual(resolve_api._as_sequence([1, 2, 3]), [1, 2, 3])
+
+    def test_tuple_returned_as_list(self):
+        result = resolve_api._as_sequence((1, 2))
+        self.assertIsInstance(result, list)
+        self.assertEqual(result, [1, 2])
+
+    def test_set_returned_as_list(self):
+        result = resolve_api._as_sequence({10, 20})
+        self.assertIsInstance(result, list)
+        self.assertEqual(sorted(result), [10, 20])
+
+    def test_scalar_wrapped_in_list(self):
+        self.assertEqual(resolve_api._as_sequence("hello"), ["hello"])
+
+    def test_int_scalar_wrapped_in_list(self):
+        self.assertEqual(resolve_api._as_sequence(42), [42])
+
+
+class TestDedupKeywords(unittest.TestCase):
+    """Tests for resolve_api._dedup_keywords."""
+
+    def test_empty_list(self):
+        self.assertEqual(resolve_api._dedup_keywords([]), [])
+
+    def test_basic_dedup(self):
+        self.assertEqual(resolve_api._dedup_keywords(["a", "b", "a"]), ["a", "b"])
+
+    def test_case_insensitive_dedup(self):
+        result = resolve_api._dedup_keywords(["Ohio", "ohio"])
+        self.assertEqual(result, ["Ohio"])
+
+    def test_preserves_first_occurrence(self):
+        # "Alpha" comes first; "alpha" is the duplicate → "Alpha" kept
+        result = resolve_api._dedup_keywords(["Alpha", "beta", "ALPHA"])
+        self.assertEqual(result[0], "Alpha")
+        self.assertNotIn("ALPHA", result)
+
+    def test_no_duplicates_unchanged(self):
+        kws = ["alpha", "beta", "gamma"]
+        self.assertEqual(resolve_api._dedup_keywords(kws), kws)
+
+    def test_single_item(self):
+        self.assertEqual(resolve_api._dedup_keywords(["x"]), ["x"])
+
+
+class TestClipDateKey(unittest.TestCase):
+    """Tests for resolve_api._clip_date_key."""
+
+    def _make_clip(self, date_str, name="clip"):
+        clip = MagicMock()
+        clip.GetClipProperty.return_value = date_str
+        clip.GetName.return_value = name
+        return clip
+
+    def test_mm_dd_yyyy_format(self):
+        clip = self._make_clip("01/15/2024 08:30:00")
+        dt, name = resolve_api._clip_date_key(clip)
+        from datetime import datetime
+        self.assertEqual(dt, datetime(2024, 1, 15, 8, 30, 0))
+
+    def test_yyyy_mm_dd_format(self):
+        clip = self._make_clip("2024-06-20 14:00:00")
+        dt, name = resolve_api._clip_date_key(clip)
+        from datetime import datetime
+        self.assertEqual(dt, datetime(2024, 6, 20, 14, 0, 0))
+
+    def test_dd_mm_yyyy_format(self):
+        clip = self._make_clip("28/09/2024 19:35:21")
+        dt, name = resolve_api._clip_date_key(clip)
+        from datetime import datetime
+        self.assertEqual(dt, datetime(2024, 9, 28, 19, 35, 21))
+
+    def test_weekday_month_day_year_format(self):
+        clip = self._make_clip("Sat Sep 28 2024 19:35:21")
+        dt, name = resolve_api._clip_date_key(clip)
+        from datetime import datetime
+        self.assertEqual(dt, datetime(2024, 9, 28, 19, 35, 21))
+
+    def test_unparseable_date_returns_max(self):
+        from datetime import datetime
+        clip = self._make_clip("not a date at all", name="test")
+        dt, name = resolve_api._clip_date_key(clip)
+        self.assertEqual(dt, datetime.max)
+        self.assertEqual(name, "test")
+
+    def test_empty_string_returns_max(self):
+        from datetime import datetime
+        clip = self._make_clip("", name="myclip")
+        dt, name = resolve_api._clip_date_key(clip)
+        self.assertEqual(dt, datetime.max)
+        self.assertEqual(name, "myclip")
+
+    def test_getclipproperty_raises_returns_max(self):
+        from datetime import datetime
+        clip = MagicMock()
+        clip.GetClipProperty.side_effect = Exception("IPC error")
+        clip.GetName.return_value = "badclip"
+        dt, name = resolve_api._clip_date_key(clip)
+        self.assertEqual(dt, datetime.max)
+        self.assertEqual(name, "badclip")
+
+    def test_name_returned_correctly(self):
+        clip = self._make_clip("01/01/2024 10:00:00", name="myclip")
+        _, name = resolve_api._clip_date_key(clip)
+        self.assertEqual(name, "myclip")
+
+
+class TestGetCachedSuggestions(unittest.TestCase):
+    """Tests for resolve_api.get_cached_suggestions and invalidate_folder_cache."""
+
+    def setUp(self):
+        resolve_api._last_suggestions = None
+        resolve_api._folder_cache = None
+
+    def tearDown(self):
+        resolve_api._last_suggestions = None
+        resolve_api._folder_cache = None
+
+    def test_cache_hit_returns_suggestions(self):
+        resolve_api._last_suggestions = ("media-123", ["alpha", "beta"])
+        result = resolve_api.get_cached_suggestions("media-123")
+        self.assertEqual(result, ["alpha", "beta"])
+
+    def test_cache_miss_wrong_id_returns_none(self):
+        resolve_api._last_suggestions = ("media-999", ["alpha"])
+        result = resolve_api.get_cached_suggestions("media-123")
+        self.assertIsNone(result)
+
+    def test_cold_cache_returns_none(self):
+        resolve_api._last_suggestions = None
+        result = resolve_api.get_cached_suggestions("any-id")
+        self.assertIsNone(result)
+
+    def test_invalidate_clears_both_caches(self):
+        resolve_api._folder_cache = ("folder", [], {}, {}, {})
+        resolve_api._last_suggestions = ("media-1", ["kw"])
+        resolve_api.invalidate_folder_cache()
+        self.assertIsNone(resolve_api._folder_cache)
+        self.assertIsNone(resolve_api._last_suggestions)
+
+
+class TestGetFolderCache(unittest.TestCase):
+    """Tests for resolve_api._get_folder_cache."""
+
+    def _make_clip(self, media_id, date="01/01/2024 12:00:00", keywords="alpha, beta", proxy=""):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        clip.GetName.return_value = media_id
+        clip.GetClipProperty.side_effect = lambda k: (
+            date if k == "Date Created"
+            else (keywords if k == "Keywords" else (proxy if k == "Proxy Media Path" else ""))
+        )
+        clip.GetMetadata.side_effect = lambda k=None: (
+            {"Keywords": keywords} if k is None else (keywords if k == "Keywords" else None)
+        )
+        return clip
+
+    def setUp(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def tearDown(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def test_cache_hit_same_folder_name(self):
+        clip = self._make_clip("c1")
+        folder = MagicMock()
+        folder.GetName.return_value = "Master"
+        resolve_api._folder_cache = ("Master", [clip], {}, {}, {})
+        # Should return from cache without calling GetClipList
+        sorted_clips, _, _, _ = resolve_api._get_folder_cache(folder)
+        folder.GetClipList.assert_not_called()
+
+    def test_cache_miss_different_name_rebuilds(self):
+        clip = self._make_clip("c1")
+        folder = MagicMock()
+        folder.GetName.return_value = "NewFolder"
+        folder.GetClipList.return_value = [clip]
+        resolve_api._folder_cache = ("OldFolder", [], {}, {}, {})
+        sorted_clips, _, _, _ = resolve_api._get_folder_cache(folder)
+        folder.GetClipList.assert_called_once()
+        self.assertEqual(len(sorted_clips), 1)
+
+    def test_raw_none_triggers_getcliplist(self):
+        clip = self._make_clip("c2")
+        folder = MagicMock()
+        folder.GetName.return_value = "FolderA"
+        folder.GetClipList.return_value = [clip]
+        sorted_clips, _, _, _ = resolve_api._get_folder_cache(folder, raw=None)
+        folder.GetClipList.assert_called_once()
+        self.assertEqual(len(sorted_clips), 1)
+
+    def test_raw_provided_skips_getcliplist(self):
+        clip = self._make_clip("c3")
+        folder = MagicMock()
+        folder.GetName.return_value = "FolderB"
+        sorted_clips, _, _, _ = resolve_api._get_folder_cache(folder, raw=[clip])
+        folder.GetClipList.assert_not_called()
+        self.assertEqual(len(sorted_clips), 1)
+
+
+class TestGetNeighbours(unittest.TestCase):
+    """Tests for resolve_api.get_neighbours."""
+
+    def _make_clip(self, media_id, proxy=""):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        clip.GetName.return_value = media_id
+        return clip
+
+    def setUp(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def tearDown(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def _set_cache(self, clips, proxy_by_id=None):
+        if proxy_by_id is None:
+            proxy_by_id = {c.GetMediaId(): f"/proxy/{c.GetMediaId()}.mxf" for c in clips}
+        resolve_api._folder_cache = ("folder", clips, {}, {}, proxy_by_id)
+
+    def test_cold_cache_returns_empty_strings(self):
+        resolve_api._folder_cache = None
+        prev, next_ = resolve_api.get_neighbours("any-id")
+        self.assertEqual(prev, "")
+        self.assertEqual(next_, "")
+
+    def test_clip_not_found_returns_empty(self):
+        clips = [self._make_clip("a"), self._make_clip("b")]
+        self._set_cache(clips)
+        prev, next_ = resolve_api.get_neighbours("nonexistent")
+        self.assertEqual(prev, "")
+        self.assertEqual(next_, "")
+
+    def test_first_clip_no_prev(self):
+        clips = [self._make_clip("first"), self._make_clip("second"), self._make_clip("third")]
+        proxy_by_id = {"first": "/p/first.mxf", "second": "/p/second.mxf", "third": "/p/third.mxf"}
+        self._set_cache(clips, proxy_by_id)
+        prev, next_ = resolve_api.get_neighbours("first")
+        self.assertEqual(prev, "")
+        self.assertEqual(next_, "/p/second.mxf")
+
+    def test_last_clip_no_next(self):
+        clips = [self._make_clip("first"), self._make_clip("second"), self._make_clip("last")]
+        proxy_by_id = {"first": "/p/first.mxf", "second": "/p/second.mxf", "last": "/p/last.mxf"}
+        self._set_cache(clips, proxy_by_id)
+        prev, next_ = resolve_api.get_neighbours("last")
+        self.assertEqual(prev, "/p/second.mxf")
+        self.assertEqual(next_, "")
+
+    def test_middle_clip_has_both(self):
+        clips = [self._make_clip("a"), self._make_clip("b"), self._make_clip("c")]
+        proxy_by_id = {"a": "/p/a.mxf", "b": "/p/b.mxf", "c": "/p/c.mxf"}
+        self._set_cache(clips, proxy_by_id)
+        prev, next_ = resolve_api.get_neighbours("b")
+        self.assertEqual(prev, "/p/a.mxf")
+        self.assertEqual(next_, "/p/c.mxf")
+
+
+class TestSuggestKeywordsFromCache(unittest.TestCase):
+    """Tests for resolve_api.suggest_keywords_from_cache."""
+
+    def _make_clip(self, media_id):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        clip.GetName.return_value = media_id
+        return clip
+
+    def setUp(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def tearDown(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def test_cold_cache_returns_none(self):
+        result = resolve_api.suggest_keywords_from_cache("any-id", [])
+        self.assertIsNone(result)
+
+    def test_clip_not_in_cache_returns_none(self):
+        clip = self._make_clip("some-other-id")
+        from datetime import datetime
+        resolve_api._folder_cache = (
+            "folder", [clip],
+            {"some-other-id": datetime(2024, 1, 1)},
+            {"some-other-id": ["kw"]},
+            {},
+        )
+        result = resolve_api.suggest_keywords_from_cache("nonexistent", [])
+        self.assertIsNone(result)
+
+    def test_excludes_current_clip_keywords(self):
+        from datetime import datetime
+        c1 = self._make_clip("neighbor")
+        cur = self._make_clip("cur")
+        resolve_api._folder_cache = (
+            "folder",
+            [c1, cur],
+            {"neighbor": datetime(2024, 1, 1), "cur": datetime(2024, 1, 2)},
+            {"neighbor": ["shared", "unique"], "cur": ["shared"]},
+            {},
+        )
+        result = resolve_api.suggest_keywords_from_cache("cur", ["shared"])
+        self.assertIsNotNone(result)
+        self.assertNotIn("shared", [k.lower() for k in result])
+        self.assertIn("unique", result)
+
+    def test_updates_last_suggestions(self):
+        from datetime import datetime
+        c1 = self._make_clip("n1")
+        cur = self._make_clip("cur")
+        resolve_api._folder_cache = (
+            "folder",
+            [c1, cur],
+            {"n1": datetime(2024, 1, 1), "cur": datetime(2024, 1, 2)},
+            {"n1": ["alpha"], "cur": []},
+            {},
+        )
+        result = resolve_api.suggest_keywords_from_cache("cur", [])
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(resolve_api._last_suggestions)
+        self.assertEqual(resolve_api._last_suggestions[0], "cur")
+
+    def test_correct_scoring_closer_neighbor_ranks_higher(self):
+        from datetime import datetime
+        # n_far at index 0, n_close at index 1, cur at index 2
+        n_far = self._make_clip("n_far")
+        n_close = self._make_clip("n_close")
+        cur = self._make_clip("cur")
+        resolve_api._folder_cache = (
+            "folder",
+            [n_far, n_close, cur],
+            {
+                "n_far": datetime(2024, 1, 1),
+                "n_close": datetime(2024, 1, 2),
+                "cur": datetime(2024, 1, 3),
+            },
+            {
+                "n_far": ["far_kw"],
+                "n_close": ["close_kw"],
+                "cur": [],
+            },
+            {},
+        )
+        result = resolve_api.suggest_keywords_from_cache("cur", [])
+        # close_kw has distance 1 (score 1.0), far_kw has distance 2 (score 0.5)
+        self.assertIsNotNone(result)
+        self.assertIn("close_kw", result)
+        self.assertIn("far_kw", result)
+        self.assertEqual(result[0], "close_kw")
+        self.assertEqual(result[1], "far_kw")
+
+
+class TestProbeDuration(unittest.TestCase):
+    """Tests for resolve_api._probe_duration."""
+
+    def test_success_returns_float(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout=b"12.345\n")
+            result = resolve_api._probe_duration("/fake/file.mov", "/usr/bin/ffprobe")
+        self.assertAlmostEqual(result, 12.345)
+
+    def test_nonzero_returncode_returns_zero(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=1, stdout=b"")
+            result = resolve_api._probe_duration("/fake/file.mov", "/usr/bin/ffprobe")
+        self.assertEqual(result, 0.0)
+
+    def test_float_parse_error_returns_zero(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout=b"N/A\n")
+            result = resolve_api._probe_duration("/fake/file.mov", "/usr/bin/ffprobe")
+        self.assertEqual(result, 0.0)
+
+    def test_exception_returns_zero(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.side_effect = Exception("timeout")
+            result = resolve_api._probe_duration("/fake/file.mov", "/usr/bin/ffprobe")
+        self.assertEqual(result, 0.0)
+
+
+class TestExtractFrame(unittest.TestCase):
+    """Tests for resolve_api._extract_frame."""
+
+    def test_success_returns_bytes(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout=b"PNGDATA")
+            result = resolve_api._extract_frame("/fake/file.mov", "/usr/bin/ffmpeg", 5.0)
+        self.assertEqual(result, b"PNGDATA")
+
+    def test_nonzero_returncode_returns_none(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=1, stdout=b"")
+            result = resolve_api._extract_frame("/fake/file.mov", "/usr/bin/ffmpeg", 5.0)
+        self.assertIsNone(result)
+
+    def test_empty_stdout_returns_none(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.return_value = MagicMock(returncode=0, stdout=b"")
+            result = resolve_api._extract_frame("/fake/file.mov", "/usr/bin/ffmpeg", 5.0)
+        self.assertIsNone(result)
+
+    def test_exception_returns_none(self):
+        with patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.side_effect = Exception("process crashed")
+            result = resolve_api._extract_frame("/fake/file.mov", "/usr/bin/ffmpeg", 5.0)
+        self.assertIsNone(result)
+
+
+class TestExtractFramesSinglePass(unittest.TestCase):
+    """Tests for resolve_api._extract_frames_single_pass."""
+
+    def test_empty_seeks_returns_empty_list(self):
+        result = resolve_api._extract_frames_single_pass("/fake/file.mov", "/usr/bin/ffmpeg", [])
+        self.assertEqual(result, [])
+
+    def test_none_results_filtered_out(self):
+        with patch("resolve_api._extract_frame") as mock_ef:
+            mock_ef.side_effect = [b"F1", None, b"F3"]
+            result = resolve_api._extract_frames_single_pass(
+                "/fake/file.mov", "/usr/bin/ffmpeg", [1.0, 2.0, 3.0]
+            )
+        # None filtered
+        self.assertIn(b"F1", result)
+        self.assertIn(b"F3", result)
+        self.assertNotIn(None, result)
+
+    def test_all_succeed(self):
+        with patch("resolve_api._extract_frame", return_value=b"OK"):
+            result = resolve_api._extract_frames_single_pass(
+                "/fake/file.mov", "/usr/bin/ffmpeg", [1.0, 2.0]
+            )
+        self.assertEqual(len(result), 2)
+
+
+class TestFramesFromFilePathTimed(unittest.TestCase):
+    """Tests for resolve_api.frames_from_file_path_timed."""
+
+    def test_returns_tuple_of_frames_probe_ms_extract_ms(self):
+        with patch("resolve_api._ffmpeg_path", return_value="/usr/bin/ffmpeg"), \
+             patch("resolve_api._ffprobe_path", return_value="/usr/bin/ffprobe"), \
+             patch("resolve_api.subprocess") as mock_sub:
+            mock_sub.run.side_effect = [
+                MagicMock(returncode=0, stdout=b"10.0"),
+            ] + [MagicMock(returncode=0, stdout=b"PNG")] * 10
+            frames, probe_ms, extract_ms = resolve_api.frames_from_file_path_timed("/fake/clip.mov")
+        self.assertIsInstance(frames, list)
+        self.assertIsInstance(probe_ms, float)
+        self.assertIsInstance(extract_ms, float)
+        self.assertEqual(len(frames), 5)
+
+    def test_ffmpeg_not_found_returns_empty_and_zeros(self):
+        with patch("resolve_api._ffmpeg_path", side_effect=FileNotFoundError):
+            frames, probe_ms, extract_ms = resolve_api.frames_from_file_path_timed("/fake/clip.mov")
+        self.assertEqual(frames, [])
+        self.assertEqual(probe_ms, 0.0)
+        self.assertEqual(extract_ms, 0.0)
+
+
+class TestGetSelectedMediaPoolItem(unittest.TestCase):
+    """Tests for resolve_api.get_selected_media_pool_item."""
+
+    def test_returns_none_when_project_manager_is_none(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value = None
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertIsNone(result)
+
+    def test_timeline_path_returns_media_pool_item(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        timeline = project.GetCurrentTimeline.return_value
+        tl_item = timeline.GetCurrentVideoItem.return_value
+        mpi = MagicMock()
+        tl_item.GetMediaPoolItem.return_value = mpi
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertEqual(result, mpi)
+
+    def test_media_pool_fallback_when_no_timeline(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        project.GetCurrentTimeline.return_value = None
+        media_pool = project.GetMediaPool.return_value
+        selected_clip = MagicMock()
+        media_pool.GetSelectedClips.return_value = {"1": selected_clip}
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertEqual(result, selected_clip)
+
+    def test_media_pool_fallback_when_timeline_item_has_no_media_pool_item(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        timeline = project.GetCurrentTimeline.return_value
+        tl_item = timeline.GetCurrentVideoItem.return_value
+        tl_item.GetMediaPoolItem.return_value = None
+        media_pool = project.GetMediaPool.return_value
+        selected_clip = MagicMock()
+        media_pool.GetSelectedClips.return_value = {"1": selected_clip}
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertEqual(result, selected_clip)
+
+    def test_nothing_selected_returns_none(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        project.GetCurrentTimeline.return_value = None
+        media_pool = project.GetMediaPool.return_value
+        media_pool.GetSelectedClips.return_value = {}
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertIsNone(result)
+
+    def test_returns_none_when_media_pool_is_none(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        project.GetCurrentTimeline.return_value = None
+        project.GetMediaPool.return_value = None
+        result = resolve_api.get_selected_media_pool_item(resolve)
+        self.assertIsNone(result)
+
+
+class TestFindFolderForClip(unittest.TestCase):
+    """Tests for resolve_api._find_folder_for_clip."""
+
+    def _make_clip(self, media_id):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        return clip
+
+    def _make_folder(self, clips, subfolders=None):
+        folder = MagicMock()
+        folder.GetClipList.return_value = clips
+        folder.GetSubFolderList.return_value = subfolders or []
+        return folder
+
+    def test_found_in_root(self):
+        clip = self._make_clip("target")
+        folder = self._make_folder([clip])
+        result = resolve_api._find_folder_for_clip(folder, "target")
+        self.assertEqual(result, folder)
+
+    def test_found_in_subfolder(self):
+        clip = self._make_clip("target")
+        subfolder = self._make_folder([clip])
+        root = self._make_folder([], subfolders=[subfolder])
+        result = resolve_api._find_folder_for_clip(root, "target")
+        self.assertEqual(result, subfolder)
+
+    def test_not_found_returns_none(self):
+        clip = self._make_clip("other")
+        folder = self._make_folder([clip])
+        result = resolve_api._find_folder_for_clip(folder, "nonexistent")
+        self.assertIsNone(result)
+
+    def test_found_in_nested_subfolder(self):
+        clip = self._make_clip("deep")
+        deep_sub = self._make_folder([clip])
+        mid_sub = self._make_folder([], subfolders=[deep_sub])
+        root = self._make_folder([], subfolders=[mid_sub])
+        result = resolve_api._find_folder_for_clip(root, "deep")
+        self.assertEqual(result, deep_sub)
+
+
+class TestResolveFolder(unittest.TestCase):
+    """Tests for resolve_api._resolve_folder."""
+
+    def _make_clip(self, media_id):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        return clip
+
+    def test_getcurrentfolder_success_clip_present(self):
+        clip = self._make_clip("cur")
+        folder = MagicMock()
+        folder.GetClipList.return_value = [clip]
+        media_pool = MagicMock()
+        media_pool.GetCurrentFolder.return_value = folder
+        current_item = self._make_clip("cur")
+        result_folder, result_clips = resolve_api._resolve_folder(media_pool, current_item)
+        self.assertEqual(result_folder, folder)
+        self.assertIsNotNone(result_clips)
+
+    def test_getcurrentfolder_stale_falls_back_to_walk(self):
+        # GetCurrentFolder returns folder, but clip not in that folder
+        other_clip = self._make_clip("other")
+        stale_folder = MagicMock()
+        stale_folder.GetClipList.return_value = [other_clip]
+
+        target_clip = self._make_clip("target")
+        correct_folder = MagicMock()
+        correct_folder.GetClipList.return_value = [target_clip]
+        correct_folder.GetSubFolderList.return_value = []
+
+        root = MagicMock()
+        root.GetClipList.return_value = []
+        root.GetSubFolderList.return_value = [correct_folder]
+
+        media_pool = MagicMock()
+        media_pool.GetCurrentFolder.return_value = stale_folder
+        media_pool.GetRootFolder.return_value = root
+
+        current_item = self._make_clip("target")
+        result_folder, result_clips = resolve_api._resolve_folder(media_pool, current_item)
+        self.assertEqual(result_folder, correct_folder)
+        # raw is None in the fallback path
+        self.assertIsNone(result_clips)
+
+    def test_getcurrentfolder_none_falls_back_to_walk(self):
+        target_clip = self._make_clip("target")
+        folder = MagicMock()
+        folder.GetClipList.return_value = [target_clip]
+        folder.GetSubFolderList.return_value = []
+
+        root = MagicMock()
+        root.GetClipList.return_value = []
+        root.GetSubFolderList.return_value = [folder]
+
+        media_pool = MagicMock()
+        media_pool.GetCurrentFolder.return_value = None
+        media_pool.GetRootFolder.return_value = root
+
+        current_item = self._make_clip("target")
+        result_folder, result_clips = resolve_api._resolve_folder(media_pool, current_item)
+        self.assertEqual(result_folder, folder)
+
+    def test_root_none_returns_none_none(self):
+        media_pool = MagicMock()
+        media_pool.GetCurrentFolder.return_value = None
+        media_pool.GetRootFolder.return_value = None
+        current_item = self._make_clip("target")
+        result_folder, result_clips = resolve_api._resolve_folder(media_pool, current_item)
+        self.assertIsNone(result_folder)
+        self.assertIsNone(result_clips)
+
+
 if __name__ == "__main__":
     unittest.main()

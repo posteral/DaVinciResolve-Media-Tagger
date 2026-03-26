@@ -206,5 +206,207 @@ class TestRunDetectionPipeline(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+class TestBoxesOverlap(unittest.TestCase):
+    """Tests for identity_recognition._boxes_overlap."""
+
+    def test_overlapping_boxes_returns_true(self):
+        # Box a = (10, 40, 40, 10), box b = (20, 50, 50, 20) — overlap
+        a = (10, 40, 40, 10)
+        b = (20, 50, 50, 20)
+        self.assertTrue(identity_recognition._boxes_overlap(a, b))
+
+    def test_non_overlapping_b_is_left_of_a(self):
+        # a is at (10, 40, 40, 20), b ends at right=15 (left of a)
+        a = (10, 40, 40, 20)
+        b = (10, 15, 40, 0)  # b_right=15 < a_left=20
+        self.assertFalse(identity_recognition._boxes_overlap(a, b))
+
+    def test_non_overlapping_b_is_above_a(self):
+        # a starts at top=50, b ends at bottom=20 — b is entirely above a
+        a = (50, 100, 100, 50)
+        b = (0, 100, 20, 50)  # b_bottom=20 < a_top=50
+        self.assertFalse(identity_recognition._boxes_overlap(a, b))
+
+    def test_touching_edges_not_overlapping(self):
+        # Boxes share an edge exactly (a_right == b_left) — touching but NOT overlapping
+        # a_right=40, b_left=40 → a_right > b_left is False
+        a = (0, 40, 40, 0)
+        b = (0, 80, 40, 40)
+        self.assertFalse(identity_recognition._boxes_overlap(a, b))
+
+    def test_contained_box_overlaps(self):
+        # b completely inside a
+        a = (0, 100, 100, 0)
+        b = (20, 80, 80, 20)
+        self.assertTrue(identity_recognition._boxes_overlap(a, b))
+
+
+class TestCropFace(unittest.TestCase):
+    """Tests for identity_recognition._crop_face boundary clamping."""
+
+    def _make_rgb(self, h=100, w=100):
+        return np.zeros((h, w, 3), dtype=np.uint8)
+
+    def test_crop_clamped_at_top_left_boundary(self):
+        # Location with tiny top/left so padding would go negative
+        rgb = self._make_rgb(100, 100)
+        location = (2, 20, 20, 2)  # top=2, right=20, bottom=20, left=2 — pad would go below 0
+        result = identity_recognition._crop_face(rgb, location, pad_fraction=0.5)
+        self.assertIsInstance(result, bytes)
+        self.assertGreater(len(result), 0)
+
+    def test_crop_clamped_at_bottom_right_boundary(self):
+        # Location at the very bottom-right corner
+        rgb = self._make_rgb(100, 100)
+        location = (80, 99, 99, 80)  # padding would exceed 100×100
+        result = identity_recognition._crop_face(rgb, location, pad_fraction=0.5)
+        self.assertIsInstance(result, bytes)
+        self.assertGreater(len(result), 0)
+
+    def test_normal_crop_returns_jpeg_bytes(self):
+        rgb = self._make_rgb(200, 200)
+        location = (50, 150, 150, 50)
+        result = identity_recognition._crop_face(rgb, location, pad_fraction=0.1)
+        self.assertIsInstance(result, bytes)
+        # JPEG magic bytes
+        self.assertEqual(result[:2], b"\xff\xd8")
+
+
+class TestClusterFacesSpatialMerge(unittest.TestCase):
+    """Tests for the spatial-overlap merge path in cluster_faces."""
+
+    def _detected(self, embedding, frame_idx=0, location=(0, 10, 10, 0)):
+        return (embedding, b"crop", frame_idx, location)
+
+    def test_spatial_overlap_with_loose_distance_merges(self):
+        """Two detections in overlapping boxes with dist < CLUSTER_DISTANCE_SPATIAL
+        but dist >= CLUSTER_DISTANCE should merge into one cluster."""
+        emb_a = np.array([0.0] * 128)
+        emb_b = np.array([0.1] * 128)
+
+        fr = MagicMock()
+        # Return dist between CLUSTER_DISTANCE (0.50) and CLUSTER_DISTANCE_SPATIAL (0.70)
+        fr.face_distance.return_value = np.array([0.60])
+
+        # Same overlapping location box
+        location = (10, 50, 50, 10)
+        detected = [
+            self._detected(emb_a.tolist(), 0, location),
+            self._detected(emb_b.tolist(), 1, location),
+        ]
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            clusters = identity_recognition.cluster_faces(detected)
+
+        # Should merge into one cluster because boxes overlap AND dist < CLUSTER_DISTANCE_SPATIAL
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]["occurrence_count"], 2)
+
+    def test_non_overlapping_boxes_no_spatial_merge(self):
+        """Two detections with dist between thresholds but NON-overlapping boxes
+        should produce two separate clusters."""
+        emb_a = np.array([0.0] * 128)
+        emb_b = np.array([0.1] * 128)
+
+        fr = MagicMock()
+        fr.face_distance.return_value = np.array([0.60])
+
+        detected = [
+            self._detected(emb_a.tolist(), 0, location=(0, 10, 10, 0)),
+            self._detected(emb_b.tolist(), 1, location=(80, 90, 90, 80)),  # far apart, no overlap
+        ]
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            clusters = identity_recognition.cluster_faces(detected)
+
+        self.assertEqual(len(clusters), 2)
+
+
+class TestMatchClusterBoundaries(unittest.TestCase):
+    """Tests for match_cluster threshold boundary conditions."""
+
+    def _registry_with(self, identity_id, n_embeddings):
+        return {"identities": [
+            {
+                "identity_id": identity_id,
+                "display_name": "Alice",
+                "keyword_string": "Alice",
+                "embeddings": [[0.1] * 128] * n_embeddings,
+            }
+        ]}
+
+    def test_dist_exactly_known_threshold_with_enough_embeddings_is_known(self):
+        fr = MagicMock()
+        fr.face_distance.return_value = np.array([identity_recognition.KNOWN_THRESHOLD])
+        reg = self._registry_with("abc", identity_recognition.MIN_EMBEDDINGS_FOR_KNOWN)
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+        self.assertEqual(status, "known")
+        self.assertEqual(iid, "abc")
+
+    def test_dist_exactly_low_conf_threshold_is_low_confidence(self):
+        fr = MagicMock()
+        fr.face_distance.return_value = np.array([identity_recognition.LOW_CONF_THRESHOLD])
+        reg = self._registry_with("abc", 1)
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+        self.assertEqual(status, "low_confidence")
+
+    def test_dist_within_known_threshold_but_too_few_embeddings_is_low_confidence(self):
+        fr = MagicMock()
+        fr.face_distance.return_value = np.array([identity_recognition.KNOWN_THRESHOLD - 0.01])
+        # Fewer than MIN_EMBEDDINGS_FOR_KNOWN
+        reg = self._registry_with("abc", identity_recognition.MIN_EMBEDDINGS_FOR_KNOWN - 1)
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+        self.assertEqual(status, "low_confidence")
+        self.assertEqual(iid, "abc")
+
+
+class TestRunDetectionPipelineExtra(unittest.TestCase):
+    """Additional tests for run_detection_pipeline edge cases."""
+
+    def test_distance_is_none_when_unknown(self):
+        fr = MagicMock()
+        fr.face_locations.return_value = [(0, 10, 10, 0)]
+        fr.face_encodings.return_value = [np.array([0.1] * 128)]
+        fr.face_distance.return_value = np.array([0.99])  # > LOW_CONF_THRESHOLD → unknown
+
+        reg = {"identities": [
+            {"identity_id": "abc", "display_name": "Alice",
+             "keyword_string": "Alice", "embeddings": [[0.1] * 128]}
+        ]}
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            results = identity_recognition.run_detection_pipeline([_make_png()], reg)
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["distance"])
+        self.assertIsNone(results[0]["identity_id"])
+
+    def test_low_confidence_case_sets_status_correctly(self):
+        fr = MagicMock()
+        fr.face_locations.return_value = [(0, 10, 10, 0)]
+        fr.face_encodings.return_value = [np.array([0.1] * 128)]
+        fr.face_distance.return_value = np.array([0.55])  # low_confidence range
+
+        reg = {"identities": [
+            {"identity_id": "abc", "display_name": "Bob",
+             "keyword_string": "Bob", "embeddings": [[0.1] * 128]}
+        ]}
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            results = identity_recognition.run_detection_pipeline([_make_png()], reg)
+        self.assertEqual(results[0]["status"], "low_confidence")
+        self.assertEqual(results[0]["identity_id"], "abc")
+
+    def test_occurrence_count_passed_through(self):
+        """occurrence_count in the cluster dict must appear in the result."""
+        fr = MagicMock()
+        fr.face_locations.return_value = [(0, 10, 10, 0)]
+        fr.face_encodings.return_value = [np.array([0.1] * 128)]
+        fr.face_distance.return_value = np.array([0.9])  # unknown
+
+        reg = {"identities": []}
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            results = identity_recognition.run_detection_pipeline([_make_png()], reg)
+        self.assertEqual(results[0]["occurrence_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
