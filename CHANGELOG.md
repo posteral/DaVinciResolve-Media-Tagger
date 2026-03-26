@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Applying identities now updates keywords immediately. The auto-refresh on tab
+  focus was firing when clicking Apply (brief focus shift), overwriting
+  `currentKeywords` before the confirm response was processed. Refresh now only
+  triggers if the tab was hidden for more than 2 seconds.
 - AI suggestion requests no longer hang the UI when Ollama is slow. Server-side
   timeout reduced from 60s to 20s; client-side `AbortController` cancels the
   fetch and hides the spinner after 25s regardless of server response time.
