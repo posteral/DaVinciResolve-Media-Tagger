@@ -1862,6 +1862,13 @@
         }
       }
     });
+
+    // Auto-refresh when the tab regains focus (e.g. switching back from Resolve).
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        refresh();
+      }
+    });
   </script>
 </body>
 </html>
