@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Proximity suggestions no longer return 500 when `_resolve_lock` is held by a
+  background thread. The suggestions endpoint now tries `suggest_keywords_from_cache`
+  (zero IPC) before acquiring the lock, and falls back to `{"suggestions": []}` on
+  lock timeout instead of a 500 error.
+
 ## [0.21.0] - 2026-03-26
 
 ### Fixed
