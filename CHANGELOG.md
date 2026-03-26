@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Proximity suggestion cap raised from 10 to 12.
+
+### Performance
+
+- `navigate_clip()` now skips `GetCurrentFolder()` IPC (~213ms) when the folder
+  cache is warm and the current clip is found in it. The slow path (full IPC) is
+  only taken on the first navigate after a cold start or cache invalidation.
+- `_suggest_bg` no longer acquires `_resolve_lock`. The previous slow path would
+  hold the lock for the full duration of a Resolve IPC call, blocking the next
+  navigate press by up to 4s when Resolve was sluggish. Pre-warming is now
+  cache-only and best-effort; the `/api/clip/suggestions` endpoint handles any
+  cache miss transparently.
+
 ### Tests
 
 - Expanded test suite from 124 to 251 tests (+127), achieving comprehensive coverage

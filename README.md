@@ -119,7 +119,7 @@ All ffmpeg operations (filmstrip, AI suggestion frames, face detection) use the 
 | `GET` | `/api/clip` | Selected clip name, keywords, proxy path, proximity suggestions |
 | `GET` | `/api/clip/thumbnail?path=` | PNG thumbnail (`204` if unavailable) |
 | `GET` | `/api/clip/filmstrip?path=` | All 5 filmstrip frames as base64 JSON |
-| `GET` | `/api/clip/suggestions` | Up to 10 proximity-based keyword suggestions |
+| `GET` | `/api/clip/suggestions` | Up to 12 proximity-based keyword suggestions |
 | `POST` | `/api/clip/ai-suggestion` | Up to 10 AI keyword suggestions from llava |
 | `POST` | `/api/clip/keywords` | Write updated keyword list to selected clip |
 | `POST` | `/api/clip/navigate` | Navigate to next/previous clip |
@@ -139,7 +139,7 @@ All ffmpeg operations (filmstrip, AI suggestion frames, face detection) use the 
 python3 -m unittest discover -s tests -v
 ```
 
-105 tests, all passing.
+251 tests, all passing.
 
 ---
 
