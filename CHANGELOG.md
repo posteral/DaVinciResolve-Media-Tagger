@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Tests
+
+- Expanded test suite from 124 to 251 tests (+127), achieving comprehensive coverage
+  across all source modules:
+  - `resolve_api`: `_as_sequence`, `_dedup_keywords`, `_clip_date_key` (all 4 date
+    formats), `get_cached_suggestions`, `invalidate_folder_cache`, `_get_folder_cache`
+    (hit/miss), `get_neighbours`, `suggest_keywords_from_cache`, `_probe_duration`,
+    `_extract_frame`, `_extract_frames_single_pass`, `frames_from_file_path_timed`,
+    `get_selected_media_pool_item` (timeline + media pool paths), `_find_folder_for_clip`,
+    `_resolve_folder` (stale folder fallback)
+  - `identity_recognition`: `_boxes_overlap`, `_crop_face` boundary clamping, spatial
+    merge path in `cluster_faces`, `match_cluster` at exact threshold boundaries,
+    `run_detection_pipeline` low-confidence and distance-None cases
+  - `identity_registry`: `save_face_crop` sequential numbering, `find_identity_by_name`
+    edge cases, `_select_diverse_embeddings`, `update_identity_embedding` no-op and
+    crop=None paths, `add_identity` without crop
+  - `app` (Flask routes): all 14 API endpoints covered — `/api/clip`, `/api/clip/thumbnail`,
+    `/api/clip/filmstrip`, `/api/clip/suggestions`, `/api/clip/ai-suggestion`,
+    `/api/keywords/catalog`, `/api/clip/navigate`, `/api/profiler/*`,
+    `/api/clip/neighbours`, `/api/clip/keywords`, `/api/config/pinned-keywords`
+  - `profiler`: new `tests/test_profiler.py` covering `_stats`, `record_navigate`,
+    `record_filmstrip`, `record_filmstrip_cache_hit`, `record_suggest_bg`, `summary`,
+    and `dump`
+
 ## [0.20.0] - 2026-03-01
 
 ### Added
