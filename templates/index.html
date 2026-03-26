@@ -1433,19 +1433,23 @@
         }
       } catch (_) {}
 
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
       try {
         const res = await fetch('/api/clip/detect-identities', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: filePath }),
+          signal: controller.signal,
         });
         if (!res.ok) return;
         const data = await res.json();
         renderIdentityCards(data.detections || []);
       } catch (_) {
-        // best-effort — fail silently, panel stays hidden
+        // best-effort — fail silently (includes AbortError on timeout)
         panel.style.display = 'none';
       } finally {
+        clearTimeout(timer);
         if (spinner) spinner.style.display = 'none';
       }
     }

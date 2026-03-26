@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-03-26
+
+### Fixed
+
+- Face detection (`detect-identities`) now has a 60s client-side `AbortController`
+  timeout. Previously it could block the UI indefinitely when dlib was slow on a
+  large clip, causing the app to appear frozen for minutes.
+- Navigate log now shows `pre_ipc_ms` and `get_selected_ms_pre` so Resolve
+  IPC hangs before the timed section (e.g. `GetProjectManager`, `GetCurrentProject`,
+  `GetMediaPool`, `get_selected_media_pool_item`) are immediately identifiable.
+  Previously a 55s hang appeared as `total=55379ms lock_wait=0ms` with no
+  indication of where the time was spent.
+
+### Added (Shot Finder — M1)
+
+- `search_index.py` — M1.2 CSV parser: reads Resolve's UTF-16 `ExportMetadata`
+  CSV into clean clip dicts `{file_name, clip_dir, keywords, date, duration_tc}`.
+  Skips bin/folder rows, handles space-padded dates, splits comma-separated
+  keywords. 28 unit tests, all passing.
+- `scripts/m1_1_export_metadata_smoke_test.py` — validates `ExportMetadata`
+  against the live project (23,293 clips, 2.1s export, UTF-16, confirmed columns).
+- `ROADMAP.md` — Shot Finder feature plan (5 milestones).
+- `scripts/*.csv` added to `.gitignore` to prevent accidental commit of exported
+  metadata containing real clip names, keywords, and file paths.
+
 ## [0.21.2] - 2026-03-26
 
 ### Added
