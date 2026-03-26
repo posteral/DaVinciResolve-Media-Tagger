@@ -207,17 +207,28 @@ def clip_filmstrip():
 @app.route("/api/clip/suggestions")
 def clip_suggestions():
     media_id = request.args.get("media_id", "").strip()
+
+    # Fast path: try cache-only computation first (zero Resolve IPC).
     if media_id:
         cached = resolve_api.get_cached_suggestions(media_id)
         if cached is not None:
             return jsonify({"suggestions": cached})
+        # _folder_cache is warm — compute from it without holding the lock.
+        from_cache = resolve_api.suggest_keywords_from_cache(media_id, [])
+        if from_cache is not None:
+            print(f"[suggestions] served from folder cache for {media_id!r}")
+            return jsonify({"suggestions": from_cache})
 
+    # Slow path: cache cold — need Resolve IPC.
     try:
         with _resolve_lock_timeout():
             resolve = _get_resolve()
             suggestions, debug = resolve_api.suggest_keywords(resolve)
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+        # Lock timeout or Resolve error — return empty rather than 500
+        # so the UI degrades gracefully instead of showing an error.
+        print(f"[suggestions] fallback to empty: {exc}")
+        return jsonify({"suggestions": []})
 
     print(f"[suggestions] {debug}")
     return jsonify({"suggestions": suggestions})
