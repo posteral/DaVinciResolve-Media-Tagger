@@ -1217,6 +1217,8 @@
       const aiSection = document.getElementById('ai-suggestion-section');
       if (aiSection) aiSection.style.display = 'block';
       if (aiSpinner) aiSpinner.style.display = 'inline-block';
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25000);
       try {
         // Kick off catalog load in background but don't wait for it —
         // use whatever is already cached. The AI prompt benefits most from
@@ -1231,13 +1233,15 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
         if (!res.ok) return;
         const data = await res.json();
         renderAiSuggestions(data.suggestions);
       } catch (_) {
-        // best-effort — fail silently
+        // best-effort — fail silently (includes AbortError on timeout)
       } finally {
+        clearTimeout(timer);
         if (aiSpinner) aiSpinner.style.display = 'none';
         const container = document.getElementById('ai-suggestion-container');
         if (aiSection && container && container.children.length === 0) {

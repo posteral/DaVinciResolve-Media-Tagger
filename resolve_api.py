@@ -656,7 +656,7 @@ def ai_suggest_keywords(
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read())
         text = result.get("response", "").strip()
         if not text:
