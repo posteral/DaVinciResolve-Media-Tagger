@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-03-26
+
 ### Fixed
 
 - Applying identities now updates keywords immediately. The auto-refresh on tab
