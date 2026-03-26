@@ -70,6 +70,14 @@ media pool viewer.
 - `GET /search/api/status` → `{state: "building"|"ready"|"empty", clip_count, built_at}`
 - `POST /search/api/build` → triggers rebuild
 
+  **M1.1 ✅** — `ExportMetadata` smoke test complete. Key findings:
+  - 2.1s export + 0.44s parse for 23,293 clips (14.6 MB CSV, UTF-16)
+  - Columns: `File Name`, `Clip Directory`, `Keywords`, `Date Modified`
+  - No proxy path in export — fetch lazily at click time via IPC
+  - Rows without `Clip Directory` are bin/folder entries and must be skipped
+  - 22,017 / 23,293 clips have keywords (94.5% coverage)
+  - Fast enough to run synchronously on demand — no background threading needed
+
 **M2 — Search API**
 - `GET /search/api/clips?q=sunset+corsica` → paginated results with clip
   metadata and match score

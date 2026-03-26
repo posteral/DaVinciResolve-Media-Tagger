@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-03-26
+
+### Added
+
+- `scripts/m1_1_export_metadata_smoke_test.py` — validates `ExportMetadata`
+  against the live Resolve project. Confirmed: 2.1s export for 23,293 clips,
+  UTF-16 CSV with `File Name`, `Clip Directory`, `Keywords`, `Date Modified`
+  columns. No proxy path in export (fetched lazily at click time). Establishes
+  the foundation for the Shot Finder index build pipeline.
+- `ROADMAP.md` — Shot Finder feature plan with 5 milestones.
+
 ## [0.21.1] - 2026-03-26
 
 ### Fixed
