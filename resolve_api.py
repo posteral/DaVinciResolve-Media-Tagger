@@ -330,21 +330,33 @@ def navigate_clip(
     if current_item is None:
         return None, timing
 
-    t0 = time.perf_counter()
-    folder, raw = _resolve_folder(media_pool, current_item)
-    timing["resolve_folder_ms"] = (time.perf_counter() - t0) * 1000
-    if folder is None:
-        return None, timing
-
-    cache_was_cold = _folder_cache is None or _folder_cache[0] != folder.GetName()
-    t1 = time.perf_counter()
-    clips, _, _, _ = _get_folder_cache(folder, raw)
-    timing["folder_cache_ms"] = (time.perf_counter() - t1) * 1000
-    timing["cache_miss"] = cache_was_cold
-    if not clips:
-        return None, timing
-
     current_id = current_item.GetMediaId()
+
+    # Fast path: if the folder cache is warm and the current clip is in it,
+    # skip _resolve_folder entirely (saves ~200ms of GetCurrentFolder IPC).
+    timing["resolve_folder_ms"] = 0.0
+    timing["cache_miss"] = False
+    clips = None
+    if _folder_cache is not None:
+        _, cached_clips, _, _, _ = _folder_cache
+        if any(c.GetMediaId() == current_id for c in cached_clips):
+            clips = cached_clips
+            timing["folder_cache_ms"] = 0.0
+
+    if clips is None:
+        # Slow path: cache is cold or clip not found — fall back to IPC.
+        t0 = time.perf_counter()
+        folder, raw = _resolve_folder(media_pool, current_item)
+        timing["resolve_folder_ms"] = (time.perf_counter() - t0) * 1000
+        timing["cache_miss"] = True
+        if folder is None:
+            return None, timing
+        t1 = time.perf_counter()
+        clips, _, _, _ = _get_folder_cache(folder, raw)
+        timing["folder_cache_ms"] = (time.perf_counter() - t1) * 1000
+        if not clips:
+            return None, timing
+
     indices = [i for i, c in enumerate(clips) if c.GetMediaId() == current_id]
     if not indices:
         return None, timing
