@@ -64,7 +64,7 @@ def main() -> None:
     print(f"Done in {elapsed:.2f}s  ({file_size_kb:.1f} KB)")
 
     # Parse and report
-    with open(OUTPUT_PATH, newline="", encoding="utf-8-sig") as f:
+    with open(OUTPUT_PATH, newline="", encoding="utf-16") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
         columns = reader.fieldnames or []
@@ -84,7 +84,7 @@ def main() -> None:
 
     # Check for keyword and path columns specifically
     kw_col = next((c for c in columns if "keyword" in c.lower()), None)
-    path_col = next((c for c in columns if "path" in c.lower() or "folder" in c.lower()), None)
+    path_col = next((c for c in columns if "path" in c.lower() or "folder" in c.lower() or "directory" in c.lower()), None)
     proxy_col = next((c for c in columns if "proxy" in c.lower()), None)
 
     print("Key columns detected:")
