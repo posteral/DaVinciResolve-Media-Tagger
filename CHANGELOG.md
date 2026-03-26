@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- AI suggestion requests no longer hang the UI when Ollama is slow. Server-side
+  timeout reduced from 60s to 20s; client-side `AbortController` cancels the
+  fetch and hides the spinner after 25s regardless of server response time.
+
 ### Added
 
 - Auto-refresh when the browser tab regains focus. Switching back from Resolve
