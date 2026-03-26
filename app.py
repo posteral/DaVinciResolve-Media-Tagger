@@ -106,6 +106,23 @@ def _get_resolve():
     return _resolve_obj
 
 
+from contextlib import contextmanager
+
+_LOCK_TIMEOUT = 5.0  # seconds — interactive requests give up after this long
+
+
+@contextmanager
+def _resolve_lock_timeout():
+    """Acquire _resolve_lock with a timeout. Raises RuntimeError if not acquired."""
+    acquired = _resolve_lock.acquire(timeout=_LOCK_TIMEOUT)
+    if not acquired:
+        raise RuntimeError("Resolve is busy — a background operation is taking too long. Try again.")
+    try:
+        yield
+    finally:
+        _resolve_lock.release()
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -114,7 +131,7 @@ def index():
 @app.route("/api/clip")
 def clip():
     try:
-        with _resolve_lock:
+        with _resolve_lock_timeout():
             resolve = _get_resolve()
             item = resolve_api.get_selected_media_pool_item(resolve)
             if item is None:
@@ -147,7 +164,7 @@ def clip_thumbnail():
     if not file_path:
         # Fall back: grab proxy path under the lock.
         try:
-            with _resolve_lock:
+            with _resolve_lock_timeout():
                 resolve = _get_resolve()
                 item = resolve_api.get_selected_media_pool_item(resolve)
                 if item is None:
@@ -196,7 +213,7 @@ def clip_suggestions():
             return jsonify({"suggestions": cached})
 
     try:
-        with _resolve_lock:
+        with _resolve_lock_timeout():
             resolve = _get_resolve()
             suggestions, debug = resolve_api.suggest_keywords(resolve)
     except Exception as exc:
@@ -217,7 +234,7 @@ def clip_ai_suggestion():
         catalog = body.get("catalog", [])
         if not file_path:
             try:
-                with _resolve_lock:
+                with _resolve_lock_timeout():
                     resolve = _get_resolve()
                     item = resolve_api.get_selected_media_pool_item(resolve)
                     if item is None:
@@ -233,7 +250,7 @@ def clip_ai_suggestion():
         catalog = []
         if not file_path:
             try:
-                with _resolve_lock:
+                with _resolve_lock_timeout():
                     resolve = _get_resolve()
                     item = resolve_api.get_selected_media_pool_item(resolve)
                     if item is None:
@@ -288,7 +305,7 @@ def navigate_clip():
 
     t0 = time.perf_counter()
     try:
-        with _resolve_lock:
+        with _resolve_lock_timeout():
             t_lock = time.perf_counter()
             nav_timing = {}
             nav_timing["lock_wait_ms"] = (t_lock - t0) * 1000
@@ -394,7 +411,7 @@ def set_keywords():
         return jsonify({"error": "keywords must be a list"}), 400
 
     try:
-        with _resolve_lock:
+        with _resolve_lock_timeout():
             resolve = _get_resolve()
             item = resolve_api.get_selected_media_pool_item(resolve)
             if item is None:
