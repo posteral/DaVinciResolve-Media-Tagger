@@ -125,7 +125,7 @@ class TestMatchCluster(unittest.TestCase):
         fr.face_distance.return_value = np.array([0.4])  # ≤ KNOWN_THRESHOLD
         reg = self._registry_with("abc", [[0.1] * 128] * 5)  # MIN_EMBEDDINGS_FOR_KNOWN = 5
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(iid, "abc")
         self.assertEqual(status, "known")
         self.assertAlmostEqual(dist, 0.4)
@@ -135,7 +135,7 @@ class TestMatchCluster(unittest.TestCase):
         fr.face_distance.return_value = np.array([0.55])  # KNOWN_THRESHOLD < 0.55 ≤ LOW_CONF_THRESHOLD
         reg = self._registry_with("abc", [[0.1] * 128])
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(iid, "abc")
         self.assertEqual(status, "low_confidence")
 
@@ -144,7 +144,7 @@ class TestMatchCluster(unittest.TestCase):
         fr.face_distance.return_value = np.array([0.85])  # > LOW_CONF_THRESHOLD
         reg = self._registry_with("abc", [[0.1] * 128])
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertIsNone(iid)
         self.assertEqual(status, "unknown")
         self.assertIsNone(dist)
@@ -152,14 +152,71 @@ class TestMatchCluster(unittest.TestCase):
     def test_unknown_when_registry_empty(self):
         fr = MagicMock()
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
         self.assertIsNone(iid)
         self.assertEqual(status, "unknown")
 
     def test_returns_unknown_when_face_recognition_missing(self):
         with patch.object(identity_recognition, "_import_face_recognition", return_value=None):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
         self.assertEqual(status, "unknown")
+
+    def test_candidates_returned_sorted_by_distance(self):
+        fr = MagicMock()
+        registry = {"identities": [
+            {"identity_id": "a1", "display_name": "Alice", "keyword_string": "Alice",
+             "embeddings": [[0.1] * 128] * 5},
+            {"identity_id": "b2", "display_name": "Bob", "keyword_string": "Bob",
+             "embeddings": [[0.2] * 128] * 5},
+        ]}
+        # Alice closer (0.4), Bob further (0.5)
+        fr.face_distance.side_effect = [np.array([0.4]), np.array([0.5])]
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, registry)
+        self.assertIsInstance(candidates, list)
+        self.assertGreaterEqual(len(candidates), 1)
+        names = [c["display_name"] for c in candidates]
+        self.assertEqual(names[0], "Alice")  # closest first
+        if len(names) > 1:
+            self.assertEqual(names[1], "Bob")
+        # Each candidate has required fields
+        for c in candidates:
+            self.assertIn("identity_id", c)
+            self.assertIn("display_name", c)
+            self.assertIn("distance", c)
+
+    def test_candidates_empty_when_no_face_recognition(self):
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=None):
+            _, _, _, candidates = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
+        self.assertEqual(candidates, [])
+
+    def test_candidates_empty_when_registry_empty(self):
+        fr = MagicMock()
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            _, _, _, candidates = identity_recognition.match_cluster([0.1] * 128, {"identities": []})
+        self.assertEqual(candidates, [])
+
+    def test_run_detection_pipeline_includes_candidates(self):
+        """run_detection_pipeline result dicts include a 'candidates' list."""
+        fr = MagicMock()
+        fr.face_locations.return_value = [(0, 10, 10, 0)]
+        fr.face_encodings.return_value = [np.array([0.1] * 128)]
+        fr.face_distance.return_value = np.array([0.85])  # unknown
+        registry = {"identities": [
+            {"identity_id": "a1", "display_name": "Alice", "keyword_string": "Alice",
+             "embeddings": [[0.1] * 128] * 5},
+        ]}
+        import io as _io
+        from PIL import Image
+        img = Image.new("RGB", (100, 100))
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        png_bytes = buf.getvalue()
+        with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
+            results = identity_recognition.run_detection_pipeline([png_bytes], registry)
+        self.assertEqual(len(results), 1)
+        self.assertIn("candidates", results[0])
+        self.assertIsInstance(results[0]["candidates"], list)
 
 
 class TestRunDetectionPipeline(unittest.TestCase):
@@ -338,7 +395,7 @@ class TestMatchClusterBoundaries(unittest.TestCase):
         fr.face_distance.return_value = np.array([identity_recognition.KNOWN_THRESHOLD])
         reg = self._registry_with("abc", identity_recognition.MIN_EMBEDDINGS_FOR_KNOWN)
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(status, "known")
         self.assertEqual(iid, "abc")
 
@@ -347,7 +404,7 @@ class TestMatchClusterBoundaries(unittest.TestCase):
         fr.face_distance.return_value = np.array([identity_recognition.LOW_CONF_THRESHOLD])
         reg = self._registry_with("abc", 1)
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(status, "low_confidence")
 
     def test_dist_within_known_threshold_but_too_few_embeddings_is_low_confidence(self):
@@ -356,7 +413,7 @@ class TestMatchClusterBoundaries(unittest.TestCase):
         # Fewer than MIN_EMBEDDINGS_FOR_KNOWN
         reg = self._registry_with("abc", identity_recognition.MIN_EMBEDDINGS_FOR_KNOWN - 1)
         with patch.object(identity_recognition, "_import_face_recognition", return_value=fr):
-            iid, status, dist = identity_recognition.match_cluster([0.1] * 128, reg)
+            iid, status, dist, candidates = identity_recognition.match_cluster([0.1] * 128, reg)
         self.assertEqual(status, "low_confidence")
         self.assertEqual(iid, "abc")
 

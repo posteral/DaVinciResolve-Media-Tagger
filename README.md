@@ -2,7 +2,7 @@
 
 A browser-based tool for fast, assisted keyword tagging of clips in DaVinci Resolve. It runs alongside Resolve and connects via the official scripting API, letting you navigate clips, apply keywords from multiple suggestion sources, and write them back to the media pool — all without touching Resolve's UI.
 
-**Current release: v0.21.3**
+**Current release: v0.21.4**
 
 ---
 
@@ -139,7 +139,7 @@ All ffmpeg operations (filmstrip, AI suggestion frames, face detection) use the 
 python3 -m unittest discover -s tests -v
 ```
 
-251 tests, all passing.
+283 tests, all passing.
 
 ---
 

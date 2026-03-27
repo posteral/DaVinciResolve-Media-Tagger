@@ -267,6 +267,24 @@
       cursor: pointer;
     }
 
+    .identity-candidates {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .identity-candidate-btn {
+      background: #2a3a2a;
+      border: 1px solid #3a5a3a;
+      border-radius: 4px;
+      color: #8ecf8e;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .identity-candidate-btn:hover { background: #3a4a3a; border-color: #5a8a5a; }
+
     .identity-add-kw input[type="checkbox"] {
       accent-color: #3a7bd5;
     }
@@ -1570,6 +1588,32 @@
       });
     }
 
+    // Build a row of ranked candidate quick-pick buttons.
+    // Clicking a button fills the assign input and updates card.dataset.identityId/isNew.
+    // Only rendered when status is not 'known' and there are candidates.
+    function _buildCandidatesRow(candidates, assignInput, card) {
+      if (!candidates || candidates.length === 0) return null;
+      const row = document.createElement('div');
+      row.className = 'identity-candidates';
+      candidates.forEach(c => {
+        const btn = document.createElement('button');
+        btn.className = 'identity-candidate-btn';
+        btn.type = 'button';
+        btn.textContent = c.display_name;
+        btn.title = 'Distance: ' + c.distance;
+        btn.addEventListener('click', () => {
+          assignInput.value = c.display_name;
+          card.dataset.identityId = c.identity_id || '';
+          card.dataset.isNew = c.identity_id ? 'false' : 'true';
+          // Enable Apply button
+          const applyBtn = document.getElementById('identity-apply-btn');
+          if (applyBtn) applyBtn.disabled = false;
+        });
+        row.appendChild(btn);
+      });
+      return row;
+    }
+
     // Build a single-detection identity card (used for ungrouped / split cards).
     function _buildSingleIdentityCard(det, datalistId, inheritedName) {
       const card = document.createElement('div');
@@ -1616,6 +1660,12 @@
       assignWrap.appendChild(assignInput);
       card.appendChild(assignWrap);
       _attachIdentityAutocomplete(assignInput, assignWrap, card);
+
+      // Ranked candidate quick-pick buttons (for unknown / low_confidence only)
+      if (det.status !== 'known') {
+        const candidatesRow = _buildCandidatesRow(det.candidates || [], assignInput, card);
+        if (candidatesRow) card.appendChild(candidatesRow);
+      }
 
       // Add as keyword checkbox
       const kwLabel = document.createElement('label');
@@ -1736,6 +1786,12 @@
         assignWrap.appendChild(assignInput);
         card.appendChild(assignWrap);
         _attachIdentityAutocomplete(assignInput, assignWrap, card);
+
+        // Ranked candidate quick-pick buttons (for unknown / low_confidence only)
+        if (bestStatus !== 'known') {
+          const candidatesRow = _buildCandidatesRow(rep.candidates || [], assignInput, card);
+          if (candidatesRow) card.appendChild(candidatesRow);
+        }
 
         // Add as keyword checkbox
         const kwLabel = document.createElement('label');

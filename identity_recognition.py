@@ -139,19 +139,21 @@ def cluster_faces(
 
 def match_cluster(
     cluster_embedding: list[float], registry: dict
-) -> tuple[str | None, str, float | None]:
+) -> tuple[str | None, str, float | None, list[dict]]:
     """Compare a cluster's mean embedding against the identity registry.
 
-    Returns (identity_id, status, distance) where status is one of:
-      'known', 'low_confidence', 'unknown'
+    Returns (identity_id, status, distance, candidates) where:
+      - status is one of: 'known', 'low_confidence', 'unknown'
+      - candidates is a list of up to 3 dicts {identity_id, display_name, distance}
+        sorted by ascending distance, for use as a ranked quick-pick in the UI
     """
     fr = _import_face_recognition()
     if fr is None:
-        return None, "unknown", None
+        return None, "unknown", None, []
 
     identities = registry.get("identities", [])
     if not identities:
-        return None, "unknown", None
+        return None, "unknown", None, []
 
     emb_array = np.array(cluster_embedding)
     best_dist = float("inf")
@@ -174,16 +176,25 @@ def match_cluster(
     scores.sort(key=lambda x: x[0])
     print(f"[match_cluster] top-3: {[(i['display_name'], round(md,3), round(me,3)) for md,me,i in scores[:3]]}")
 
+    candidates = [
+        {
+            "identity_id": i["identity_id"],
+            "display_name": i["display_name"],
+            "distance": round(md, 4),
+        }
+        for md, _, i in scores[:3]
+    ]
+
     if best_id:
         identity = next(i for i in identities if i["identity_id"] == best_id)
         n_embs = len(identity.get("embeddings", []))
         if best_dist <= KNOWN_THRESHOLD and n_embs >= MIN_EMBEDDINGS_FOR_KNOWN:
-            return best_id, "known", best_dist
+            return best_id, "known", best_dist, candidates
         elif best_dist <= LOW_CONF_THRESHOLD:
-            return best_id, "low_confidence", best_dist
+            return best_id, "low_confidence", best_dist, candidates
         else:
-            return None, "unknown", None
-    return None, "unknown", None
+            return None, "unknown", None, candidates
+    return None, "unknown", None, candidates
 
 
 def run_detection_pipeline(
@@ -200,6 +211,7 @@ def run_detection_pipeline(
       - display_name: str | None
       - keyword_string: str | None
       - distance: float | None
+      - candidates: list[dict]  (top-3 [{identity_id, display_name, distance}], sorted by distance)
     """
     detected = detect_faces_in_frames(frames)
     if not detected:
@@ -214,7 +226,7 @@ def run_detection_pipeline(
 
     results = []
     for cluster in clusters:
-        identity_id, status, distance = match_cluster(
+        identity_id, status, distance, candidates = match_cluster(
             cluster["mean_embedding"], registry
         )
         identity = id_lookup.get(identity_id) if identity_id else None
@@ -227,5 +239,6 @@ def run_detection_pipeline(
             "display_name": identity["display_name"] if identity else None,
             "keyword_string": identity["keyword_string"] if identity else None,
             "distance": round(distance, 4) if distance is not None else None,
+            "candidates": candidates,
         })
     return results

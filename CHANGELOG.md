@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-03-27
+
+### Added
+
+- **Ranked identity candidates quick-pick.** Unknown and low-confidence
+  identity cards now show a row of green quick-pick buttons — one per top
+  matching identity from the registry, sorted by ascending distance. Clicking
+  a button fills the assign input and updates the card's identity metadata
+  without typing.
+- `match_cluster()` now returns a 4th element: `candidates` — a list of up to
+  3 `{identity_id, display_name, distance}` dicts sorted by min-distance.
+  Passed through `run_detection_pipeline` and the `POST /api/clip/detect-identities`
+  response.
+
+### Tests
+
+- 4 new tests for `match_cluster` candidates: sorted by distance, empty when
+  no `face_recognition` available, empty on empty registry, and
+  `run_detection_pipeline` result dicts include `candidates`. Total: 283 tests.
+
 ## [0.21.3] - 2026-03-26
 
 ### Fixed

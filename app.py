@@ -481,6 +481,7 @@ def detect_identities():
             "keyword_string": det["keyword_string"],
             "distance": det["distance"],
             "occurrence_count": det["occurrence_count"],
+            "candidates": det.get("candidates", []),
         })
 
     print(f"[detect-identities] path={file_path!r} found={len(response_detections)} face(s)")
