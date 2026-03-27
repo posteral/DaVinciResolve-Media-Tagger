@@ -1061,6 +1061,12 @@
       const container = document.getElementById('suggestions-container');
       if (!section || !container || !suggestions || suggestions.length === 0) return;
 
+      // Filter out any keywords already on the clip — guard against server-side
+      // dedup being bypassed (e.g. suggestions endpoint called with empty keywords).
+      const existing = new Set(currentKeywords.map(k => k.toLowerCase()));
+      suggestions = suggestions.filter(kw => !existing.has(kw.toLowerCase()));
+      if (suggestions.length === 0) return;
+
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px';
       suggestions.forEach(kw => {
@@ -1077,8 +1083,11 @@
 
     async function loadSuggestions(mediaId) {
       try {
-        const url = mediaId
-          ? '/api/clip/suggestions?' + new URLSearchParams({ media_id: mediaId })
+        const params = {};
+        if (mediaId) params.media_id = mediaId;
+        if (currentKeywords.length) params.keywords = currentKeywords.join(',');
+        const url = Object.keys(params).length
+          ? '/api/clip/suggestions?' + new URLSearchParams(params)
           : '/api/clip/suggestions';
         const res = await fetch(url);
         if (!res.ok) return [];

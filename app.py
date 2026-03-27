@@ -207,6 +207,10 @@ def clip_filmstrip():
 @app.route("/api/clip/suggestions")
 def clip_suggestions():
     media_id = request.args.get("media_id", "").strip()
+    # keywords param: comma-separated list sent by the client so server-side
+    # dedup works correctly even when suggestions are served from the cache.
+    kw_param = request.args.get("keywords", "").strip()
+    current_keywords = [k for k in kw_param.split(",") if k] if kw_param else []
 
     # Fast path: try cache-only computation first (zero Resolve IPC).
     if media_id:
@@ -214,7 +218,7 @@ def clip_suggestions():
         if cached is not None:
             return jsonify({"suggestions": cached})
         # _folder_cache is warm — compute from it without holding the lock.
-        from_cache = resolve_api.suggest_keywords_from_cache(media_id, [])
+        from_cache = resolve_api.suggest_keywords_from_cache(media_id, current_keywords)
         if from_cache is not None:
             print(f"[suggestions] served from folder cache for {media_id!r}")
             return jsonify({"suggestions": from_cache})

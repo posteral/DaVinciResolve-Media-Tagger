@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-03-27
+
+### Fixed
+
+- Proximity suggestions no longer show keywords already present on the clip.
+  The `/api/clip/suggestions` fast path was calling `suggest_keywords_from_cache`
+  with an empty keyword list, so `current_kws` was always empty and nothing was
+  filtered. Fixed at two levels:
+  - **Server**: route now accepts a `?keywords=` query param (comma-separated)
+    and passes it to `suggest_keywords_from_cache` so the cache-only path
+    deduplicates correctly.
+  - **Client**: `loadSuggestions` sends `currentKeywords` in the request params;
+    `renderSuggestions` also filters against `currentKeywords` as a safety net
+    covering all server paths (cache, slow IPC, legacy).
+
 ## [0.21.4] - 2026-03-27
 
 ### Added
