@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.8] - 2026-03-29
+
+### Added
+
+- **Button press animation.** Proximity (purple) and AI (teal) suggestion
+  buttons squish to 88% on click and spring back over 180ms, giving clear
+  tactile feedback and making accidental double-clicks obvious.
+
 ## [0.21.7] - 2026-03-29
 
 ### Fixed

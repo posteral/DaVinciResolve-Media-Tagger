@@ -470,6 +470,12 @@
       color: #555;
     }
 
+    @keyframes btn-press {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(0.88); }
+      100% { transform: scale(1); }
+    }
+
     .suggestion-btn {
       background: #3b2a5a;
       color: #c9b8f0;
@@ -481,6 +487,7 @@
       transition: background 0.15s;
     }
     .suggestion-btn:hover:not(:disabled) { background: #4e3a78; }
+    .suggestion-btn:active:not(:disabled) { animation: btn-press 0.18s ease-out; }
     .suggestion-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .suggestion-btn.overlap { background: #7a3d00; color: #ffc87a; border-color: #c45e00; }
     .suggestion-btn.overlap:hover:not(:disabled) { background: #9c5000; }
@@ -524,6 +531,7 @@
       transition: background 0.15s;
     }
     .ai-suggestion-add:hover:not(:disabled) { background: #236060; }
+    .ai-suggestion-add:active:not(:disabled) { animation: btn-press 0.18s ease-out; }
     .ai-suggestion-add:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .thumbnail-wrap {
