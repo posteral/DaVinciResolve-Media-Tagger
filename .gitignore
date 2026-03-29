@@ -34,7 +34,8 @@ faces/
 # Profiling reports
 profile_*.json
 
-# Shot Finder — exported metadata CSV contains real clip names, keywords, and
-# file paths. Never commit; regenerated on demand via ExportMetadata.
+# Shot Finder — exported metadata CSV and SQLite index contain real clip names,
+# keywords, and file paths. Never commit; regenerated on demand.
 scripts/export_metadata_test.csv
 scripts/*.csv
+search.db

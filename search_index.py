@@ -1,12 +1,14 @@
 """search_index.py — Shot Finder index build pipeline.
 
 M1.2: CSV parser (pure Python, no Resolve dependency).
+M1.3: SQLite schema + FTS5 index build.
 """
 from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -88,3 +90,117 @@ def parse_export_csv_text(text: str) -> list[dict[str, Any]]:
             "duration_tc": (row.get("Duration TC") or "").strip(),
         })
     return clips
+
+
+# ---------------------------------------------------------------------------
+# M1.3 — SQLite schema + FTS5 index
+# ---------------------------------------------------------------------------
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS clips (
+    id           INTEGER PRIMARY KEY,
+    file_name    TEXT NOT NULL,
+    clip_dir     TEXT NOT NULL,
+    keywords_raw TEXT NOT NULL,
+    date_iso     TEXT,
+    duration_tc  TEXT
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
+    keywords,
+    content='clips',
+    content_rowid='id'
+);
+"""
+
+
+def build_index(db_path: str | Path, clips: list[dict[str, Any]]) -> None:
+    """Create (or replace) the SQLite index at db_path from a list of clip dicts.
+
+    Drops and recreates the clips and clips_fts tables so the index is always
+    a clean snapshot. Writes a built_at ISO timestamp to the meta table.
+    """
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.executescript(_SCHEMA)
+
+        # Full rebuild: clear existing rows.
+        # FTS5 content table: use the special delete-all command first,
+        # then delete the underlying clips rows.
+        con.execute("INSERT INTO clips_fts(clips_fts) VALUES('delete-all')")
+        con.execute("DELETE FROM clips")
+
+        rows = []
+        for c in clips:
+            date_iso = c["date"].isoformat() if isinstance(c.get("date"), datetime) else None
+            keywords_raw = ",".join(c.get("keywords") or [])
+            rows.append((
+                c["file_name"],
+                c["clip_dir"],
+                keywords_raw,
+                date_iso,
+                c.get("duration_tc") or "",
+            ))
+
+        con.executemany(
+            "INSERT INTO clips (file_name, clip_dir, keywords_raw, date_iso, duration_tc)"
+            " VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+        # Populate FTS table (keywords column).
+        con.execute(
+            "INSERT INTO clips_fts (rowid, keywords)"
+            " SELECT id, keywords_raw FROM clips"
+        )
+
+        built_at = datetime.now(timezone.utc).isoformat()
+        con.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('built_at', ?)",
+            (built_at,),
+        )
+        con.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('clip_count', ?)",
+            (str(len(clips)),),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+def get_status(db_path: str | Path) -> dict[str, Any]:
+    """Return index status dict: {state, clip_count, built_at}.
+
+    state is 'ready' if the index exists and has clips, otherwise 'empty'.
+    built_at is an ISO string or None.
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return {"state": "empty", "clip_count": 0, "built_at": None}
+
+    try:
+        con = sqlite3.connect(str(path))
+        try:
+            built_at = con.execute(
+                "SELECT value FROM meta WHERE key='built_at'"
+            ).fetchone()
+            clip_count_row = con.execute(
+                "SELECT value FROM meta WHERE key='clip_count'"
+            ).fetchone()
+            clip_count = int(clip_count_row[0]) if clip_count_row else 0
+            if clip_count > 0:
+                return {
+                    "state": "ready",
+                    "clip_count": clip_count,
+                    "built_at": built_at[0] if built_at else None,
+                }
+            return {"state": "empty", "clip_count": 0, "built_at": None}
+        finally:
+            con.close()
+    except Exception:
+        return {"state": "empty", "clip_count": 0, "built_at": None}

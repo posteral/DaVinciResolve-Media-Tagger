@@ -3,6 +3,7 @@ from io import BytesIO
 import base64
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
@@ -10,6 +11,7 @@ import resolve_api
 import identity_recognition
 import identity_registry
 import profiler
+import search_index
 
 app = Flask(__name__)
 
@@ -575,6 +577,44 @@ def confirm_identities():
 @app.route("/api/config/pinned-keywords")
 def pinned_keywords():
     return jsonify({"pinned_keywords": _PINNED_KEYWORDS})
+
+
+# ---------------------------------------------------------------------------
+# Shot Finder — M1.3: index build + status
+# ---------------------------------------------------------------------------
+
+_SEARCH_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "search.db")
+
+
+@app.route("/search/api/status")
+def search_status():
+    return jsonify(search_index.get_status(_SEARCH_DB_PATH))
+
+
+@app.route("/search/api/build", methods=["POST"])
+def search_build():
+    with _resolve_lock:
+        resolve = resolve_api.get_resolve()
+        if resolve is None:
+            return jsonify({"error": "Resolve not available"}), 503
+
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+            csv_path = f.name
+
+        try:
+            ok = resolve_api.export_metadata(resolve, csv_path)
+            if not ok:
+                return jsonify({"error": "ExportMetadata failed"}), 500
+            clips = search_index.parse_export_csv(csv_path)
+        finally:
+            try:
+                os.unlink(csv_path)
+            except OSError:
+                pass
+
+    search_index.build_index(_SEARCH_DB_PATH, clips)
+    print(f"[search] index built: {len(clips)} clips")
+    return jsonify(search_index.get_status(_SEARCH_DB_PATH))
 
 
 if __name__ == "__main__":

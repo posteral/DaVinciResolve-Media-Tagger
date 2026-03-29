@@ -550,6 +550,23 @@ def get_all_project_keywords(resolve: Any) -> list[str]:
     return sorted(result, key=str.casefold)
 
 
+def export_metadata(resolve: Any, csv_path: str) -> bool:
+    """Call media_pool.ExportMetadata(csv_path) and return True on success."""
+    try:
+        pm = resolve.GetProjectManager()
+        if pm is None:
+            return False
+        project = pm.GetCurrentProject()
+        if project is None:
+            return False
+        media_pool = project.GetMediaPool()
+        if media_pool is None:
+            return False
+        return bool(media_pool.ExportMetadata(csv_path))
+    except Exception:
+        return False
+
+
 def _normalise_ai_keyword(
     text: str, existing_keywords: list[str] | None = None
 ) -> str:

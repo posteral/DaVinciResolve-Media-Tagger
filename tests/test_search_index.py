@@ -1,9 +1,12 @@
-"""Tests for search_index.py — M1.2 CSV parser."""
+"""Tests for search_index.py — M1.2 CSV parser, M1.3 SQLite index."""
 from __future__ import annotations
 
+import sqlite3
+import tempfile
 import textwrap
 import unittest
 from datetime import datetime
+from pathlib import Path
 
 import search_index
 
@@ -171,6 +174,178 @@ class TestParseExportCsvFile(unittest.TestCase):
             self.assertTrue(c["file_name"], f"empty file_name: {c}")
             self.assertTrue(c["clip_dir"], f"empty clip_dir: {c}")
             self.assertIsInstance(c["keywords"], list)
+
+
+# ---------------------------------------------------------------------------
+# M1.3 — build_index / get_status
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CLIPS = [
+    {
+        "file_name": "clip_a.mp4",
+        "clip_dir": "/vol/dir",
+        "keywords": ["sunset", "beach"],
+        "date": datetime(2025, 1, 1, 10, 0, 0),
+        "duration_tc": "00:00:10:00",
+    },
+    {
+        "file_name": "clip_b.mp4",
+        "clip_dir": "/vol/dir",
+        "keywords": ["ocean"],
+        "date": None,
+        "duration_tc": "00:00:05:00",
+    },
+    {
+        "file_name": "clip_c.mp4",
+        "clip_dir": "/vol/dir2",
+        "keywords": [],
+        "date": datetime(2025, 6, 15),
+        "duration_tc": "",
+    },
+]
+
+
+class TestBuildIndex(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    def test_creates_db_file(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        self.assertTrue(self.db_path.exists())
+
+    def test_clips_table_row_count(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        count = con.execute("SELECT COUNT(*) FROM clips").fetchone()[0]
+        con.close()
+        self.assertEqual(count, 3)
+
+    def test_keywords_raw_stored_as_comma_string(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute(
+            "SELECT keywords_raw FROM clips WHERE file_name='clip_a.mp4'"
+        ).fetchone()
+        con.close()
+        self.assertEqual(row[0], "sunset,beach")
+
+    def test_empty_keywords_stored_as_empty_string(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute(
+            "SELECT keywords_raw FROM clips WHERE file_name='clip_c.mp4'"
+        ).fetchone()
+        con.close()
+        self.assertEqual(row[0], "")
+
+    def test_date_stored_as_iso(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute(
+            "SELECT date_iso FROM clips WHERE file_name='clip_a.mp4'"
+        ).fetchone()
+        con.close()
+        self.assertIn("2025-01-01", row[0])
+
+    def test_none_date_stored_as_null(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute(
+            "SELECT date_iso FROM clips WHERE file_name='clip_b.mp4'"
+        ).fetchone()
+        con.close()
+        self.assertIsNone(row[0])
+
+    def test_meta_built_at_present(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute("SELECT value FROM meta WHERE key='built_at'").fetchone()
+        con.close()
+        self.assertIsNotNone(row)
+        self.assertIn("T", row[0])  # ISO timestamp contains 'T'
+
+    def test_meta_clip_count_correct(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        row = con.execute("SELECT value FROM meta WHERE key='clip_count'").fetchone()
+        con.close()
+        self.assertEqual(row[0], "3")
+
+    def test_fts_table_searchable(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        # FTS5 match query should find clips whose keywords contain "sunset".
+        rows = con.execute(
+            "SELECT clips.file_name FROM clips_fts"
+            " JOIN clips ON clips.id = clips_fts.rowid"
+            " WHERE clips_fts MATCH 'sunset'"
+        ).fetchall()
+        con.close()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "clip_a.mp4")
+
+    def test_rebuild_replaces_previous_data(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        # Rebuild with only one clip.
+        search_index.build_index(self.db_path, [_SAMPLE_CLIPS[0]])
+        con = sqlite3.connect(str(self.db_path))
+        count = con.execute("SELECT COUNT(*) FROM clips").fetchone()[0]
+        con.close()
+        self.assertEqual(count, 1)
+
+    def test_empty_clips_list_produces_empty_index(self):
+        search_index.build_index(self.db_path, [])
+        con = sqlite3.connect(str(self.db_path))
+        count = con.execute("SELECT COUNT(*) FROM clips").fetchone()[0]
+        con.close()
+        self.assertEqual(count, 0)
+
+
+class TestGetStatus(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    def test_empty_when_db_missing(self):
+        missing = self.db_path.parent / "nonexistent_xyz.db"
+        status = search_index.get_status(missing)
+        self.assertEqual(status["state"], "empty")
+        self.assertEqual(status["clip_count"], 0)
+        self.assertIsNone(status["built_at"])
+
+    def test_empty_when_db_has_no_clips(self):
+        search_index.build_index(self.db_path, [])
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["state"], "empty")
+
+    def test_ready_after_build(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["state"], "ready")
+
+    def test_clip_count_matches(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["clip_count"], 3)
+
+    def test_built_at_is_string(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        status = search_index.get_status(self.db_path)
+        self.assertIsInstance(status["built_at"], str)
+
+    def test_empty_on_corrupt_db(self):
+        self.db_path.write_bytes(b"not a sqlite file")
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["state"], "empty")
 
 
 if __name__ == "__main__":

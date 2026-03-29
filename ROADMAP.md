@@ -64,7 +64,7 @@ media pool viewer.
 
 ### Milestones
 
-**M1 — Index build pipeline**
+**M1 — Index build pipeline** ✅
 - `ExportMetadata` call + CSV parse + SQLite schema
 - Background build thread with status endpoint
 - `GET /search/api/status` → `{state: "building"|"ready"|"empty", clip_count, built_at}`
@@ -77,6 +77,15 @@ media pool viewer.
   - Rows without `Clip Directory` are bin/folder entries and must be skipped
   - 22,017 / 23,293 clips have keywords (94.5% coverage)
   - Fast enough to run synchronously on demand — no background threading needed
+
+  **M1.2 ✅** — CSV parser (`search_index.parse_export_csv` / `parse_export_csv_text`).
+
+  **M1.3 ✅** — SQLite schema + FTS5 index.
+  - `build_index(db_path, clips)` — creates `clips` + `clips_fts` (FTS5 content table) + `meta`; full rebuild on each call
+  - `get_status(db_path)` → `{state, clip_count, built_at}`
+  - `resolve_api.export_metadata(resolve, csv_path)` wraps `media_pool.ExportMetadata`
+  - `GET /search/api/status` and `POST /search/api/build` routes live in `app.py`
+  - DB written to `search.db` next to `app.py` (gitignored)
 
 **M2 — Search API**
 - `GET /search/api/clips?q=sunset+corsica` → paginated results with clip

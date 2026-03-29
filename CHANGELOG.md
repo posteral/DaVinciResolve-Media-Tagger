@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-03-29
+
+### Added
+
+- **Shot Finder M1.3 — SQLite schema + FTS5 index build pipeline.**
+  - `build_index(db_path, clips)` in `search_index.py` — creates `clips` table,
+    `clips_fts` FTS5 content table, and `meta` table; performs a full rebuild on
+    each call.
+  - `get_status(db_path)` — returns `{state, clip_count, built_at}`
+    (`state` is `"ready"` or `"empty"`).
+  - `resolve_api.export_metadata(resolve, csv_path)` — thin wrapper around
+    `media_pool.ExportMetadata`.
+  - `GET /search/api/status` — returns current index status.
+  - `POST /search/api/build` — exports metadata from Resolve, parses CSV,
+    builds index, returns updated status. Index written to `search.db` next to
+    `app.py`.
+
+### Tests
+
+- 17 new tests across `TestBuildIndex`, `TestGetStatus` (search_index.py),
+  and `TestSearchStatusRoute`, `TestSearchBuildRoute` (app routes).
+  Total: 305 tests.
+
 ## [0.21.8] - 2026-03-29
 
 ### Added
