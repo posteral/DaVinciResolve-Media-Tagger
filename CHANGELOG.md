@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.7] - 2026-03-29
+
+### Fixed
+
+- **Candidate quick-pick buttons now shown on all identity cards**, including
+  `known` detections. Previously the buttons were suppressed for known matches,
+  making it impossible to correct a misidentification (e.g. Yue recognised as
+  Shelly) without typing the name manually.
+
 ## [0.21.6] - 2026-03-29
 
 ### Fixed

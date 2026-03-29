@@ -1670,11 +1670,9 @@
       card.appendChild(assignWrap);
       _attachIdentityAutocomplete(assignInput, assignWrap, card);
 
-      // Ranked candidate quick-pick buttons (for unknown / low_confidence only)
-      if (det.status !== 'known') {
-        const candidatesRow = _buildCandidatesRow(det.candidates || [], assignInput, card);
-        if (candidatesRow) card.appendChild(candidatesRow);
-      }
+      // Ranked candidate quick-pick buttons (always shown so misidentified 'known' can be corrected)
+      const candidatesRow = _buildCandidatesRow(det.candidates || [], assignInput, card);
+      if (candidatesRow) card.appendChild(candidatesRow);
 
       // Add as keyword checkbox
       const kwLabel = document.createElement('label');
@@ -1796,11 +1794,9 @@
         card.appendChild(assignWrap);
         _attachIdentityAutocomplete(assignInput, assignWrap, card);
 
-        // Ranked candidate quick-pick buttons (for unknown / low_confidence only)
-        if (bestStatus !== 'known') {
-          const candidatesRow = _buildCandidatesRow(rep.candidates || [], assignInput, card);
-          if (candidatesRow) card.appendChild(candidatesRow);
-        }
+        // Ranked candidate quick-pick buttons (always shown so misidentified 'known' can be corrected)
+        const candidatesRow = _buildCandidatesRow(rep.candidates || [], assignInput, card);
+        if (candidatesRow) card.appendChild(candidatesRow);
 
         // Add as keyword checkbox
         const kwLabel = document.createElement('label');
