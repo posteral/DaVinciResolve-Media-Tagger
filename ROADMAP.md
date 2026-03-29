@@ -112,3 +112,72 @@ media pool viewer.
   rank higher than clips with just one match
 - Natural language query via Ollama (llama3): parse "outdoor clips from
   Corsica with people" into keyword filters
+
+---
+
+## Keyword Tree (`/tree` or Shot Finder panel)
+
+A co-occurrence drill-down navigator for the full archive. Lets you narrow
+from 23k clips to a handful by clicking through keyword combinations, then
+jump directly to the matching clips in Resolve.
+
+### Core idea
+
+Every keyword becomes a node showing how many clips carry it. Clicking a node
+**adds it to the active filter set** — the tree re-renders showing only
+keywords that co-occur with everything selected so far, and the clip count
+updates. Clicking an active filter removes it (drill back up). When the result
+set is small enough, a "Select in Resolve" CTA jumps to those clips.
+
+### Example flow
+
+1. Tree root: all 23,293 clips, all keywords listed by frequency.
+2. Click **France** → filter set: {France}, 847 clips.
+   Tree now shows only keywords that co-occur with France (Paris, Marc,
+   Corsica, …), each with their France-filtered count.
+3. Click **Paris** → filter set: {France, Paris}, 312 clips.
+4. Click **Marc** → filter set: {France, Paris, Marc}, 41 clips.
+5. Click **Select in Resolve** → server selects those 41 clips in the
+   media pool (or opens the matching Smart Bin if one exists).
+
+### Architecture
+
+**Data source**
+- Uses the same `search.db` SQLite index built by Shot Finder M1.
+- No additional index needed: co-occurrence is computed at query time via
+  `SELECT DISTINCT clip_id FROM clip_keywords WHERE keyword IN (...)`.
+- `clip_keywords` is a normalised junction table (one row per clip+keyword)
+  added to the schema in this milestone.
+
+**API**
+- `GET /tree/api/nodes?kw=France,Paris` → list of `{keyword, clip_count}`
+  for all keywords that co-occur with the current filter set, sorted by
+  clip_count desc.
+- `GET /tree/api/clips?kw=France,Paris,Marc` → list of matching
+  `{clip_id, file_name, clip_dir, keywords}` (capped at 200).
+- Reuses `POST /search/api/select` (M4) for the jump-to-Resolve CTA.
+
+**UI**
+- Panel (location TBD — Shot Finder sidebar or standalone `/tree` page).
+- Active filter set shown as removable chips at the top.
+- Keyword list below: each row shows keyword + clip count as a bar/badge.
+  Clicking adds to filter; active keywords highlighted.
+- Clip count and "Select in Resolve" CTA update live as filters change.
+- "Clear all" resets to root.
+
+### Milestones
+
+**T1 — clip_keywords junction table**
+- Extend `build_index` to populate a `clip_keywords(clip_id, keyword)`
+  table from the existing `clips` rows.
+- `GET /tree/api/nodes?kw=...` endpoint.
+
+**T2 — clip list endpoint + Select in Resolve**
+- `GET /tree/api/clips?kw=...` endpoint.
+- Reuse or extend `POST /search/api/select` to accept a list of clip IDs.
+
+**T3 — UI**
+- Filter chip bar + keyword list panel.
+- Live clip count + "Select in Resolve" CTA.
+- Decision on placement (Shot Finder panel vs standalone page) deferred
+  until M3 Shot Finder UI is built.
