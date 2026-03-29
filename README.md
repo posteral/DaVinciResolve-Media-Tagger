@@ -133,13 +133,44 @@ All ffmpeg operations (filmstrip, AI suggestion frames, face detection) use the 
 
 ---
 
+## Fixing existing metadata (keyword cleanup)
+
+If your project already has clips with malformed keywords (leading/trailing spaces,
+duplicates, unsorted order) — visible as duplicate Smart Bins in Resolve — run the
+bulk-fix script on an exported metadata CSV:
+
+1. **Export** from Resolve: `File → Export → Metadata...` → save as a CSV file.
+
+2. **Run the script:**
+
+```bash
+.venv/bin/python3 scripts/fix_metadata_keywords.py "/path/to/export.csv"
+```
+
+This writes a `export FIXED.csv` next to the original. You can also specify an
+explicit output path:
+
+```bash
+.venv/bin/python3 scripts/fix_metadata_keywords.py input.csv output.csv
+```
+
+The script strips whitespace, removes duplicates, and sorts keywords alphabetically
+— identical to what the tagger does on every save.
+
+3. **Import** back into Resolve: `File → Import → Timeline Markers / Metadata...`
+   → select the `FIXED` file.
+
+The original file is never modified.
+
+---
+
 ## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-283 tests, all passing.
+308 tests, all passing.
 
 ---
 
