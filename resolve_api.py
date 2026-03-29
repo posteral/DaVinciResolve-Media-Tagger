@@ -145,7 +145,9 @@ def get_keywords(media_pool_item: Any) -> list[str]:
 
 
 def set_keywords(media_pool_item: Any, keywords: list[str]) -> bool:
-    joined = ", ".join(sorted(keywords, key=str.casefold))
+    # Normalise at the write boundary: strip, dedup, sort.
+    keywords = _dedup_keywords(_normalize_keywords(keywords))
+    joined = ",".join(sorted(keywords, key=str.casefold))
     result = media_pool_item.SetMetadata("Keywords", joined)
     # Also write to ClipProperty so Resolve's Keyword Manager indexes the words.
     try:

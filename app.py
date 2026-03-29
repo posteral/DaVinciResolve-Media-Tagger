@@ -212,7 +212,7 @@ def clip_suggestions():
     # keywords param: comma-separated list sent by the client so server-side
     # dedup works correctly even when suggestions are served from the cache.
     kw_param = request.args.get("keywords", "").strip()
-    current_keywords = [k for k in kw_param.split(",") if k] if kw_param else []
+    current_keywords = [k.strip() for k in kw_param.split(",") if k.strip()] if kw_param else []
 
     # Fast path: try cache-only computation first (zero Resolve IPC).
     if media_id:
@@ -427,6 +427,8 @@ def set_keywords():
     keywords = body.get("keywords")
     if not isinstance(keywords, list):
         return jsonify({"error": "keywords must be a list"}), 400
+    # Normalise at the ingest boundary: strip whitespace, drop empty tokens, dedup.
+    keywords = resolve_api._dedup_keywords(resolve_api._normalize_keywords(keywords))
 
     try:
         with _resolve_lock_timeout():

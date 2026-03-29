@@ -1286,6 +1286,8 @@
     }
 
     function addSuggestion(kw, btn) {
+      kw = kw.trim();
+      if (!kw) return;
       if (currentKeywords.map(k => k.toLowerCase()).includes(kw.toLowerCase())) return;
       currentKeywords.push(kw);
       renderKeywords();

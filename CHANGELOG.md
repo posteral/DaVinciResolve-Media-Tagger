@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-03-29
+
+### Fixed
+
+- **Keyword whitespace normalization.** Every keyword is now stripped of
+  leading/trailing whitespace before being written to Resolve. This eliminates
+  the duplicate Smart Bin problem caused by tokens like `" Italy"` vs `"Italy"`.
+  - `resolve_api.set_keywords` normalizes and deduplicates at the write boundary.
+  - `app.py /api/clip/keywords` normalizes the incoming JSON list before passing
+    it to `set_keywords`.
+  - `app.py /api/clip/suggestions` strips each token in the `?keywords=` query
+    param.
+  - `index.html addSuggestion` trims `kw` before the duplicate check and push.
+- **Keywords written without spaces after commas.** Resolve was re-introducing
+  leading spaces by treating `", "` as `",[space]next token"`. Separator changed
+  from `", "` to `","`.
+
+### Tests
+
+- 3 new tests for `set_keywords`: strips spaces, deduplicates after stripping,
+  drops whitespace-only tokens. Total: 308 tests.
+
 ## [0.22.0] - 2026-03-29
 
 ### Added

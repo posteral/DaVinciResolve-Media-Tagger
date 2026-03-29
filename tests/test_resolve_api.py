@@ -38,7 +38,7 @@ class TestGetKeywords(unittest.TestCase):
         return item
 
     def test_reads_from_metadata_dict(self):
-        item = self._make_item({"Keywords": "a, b"})
+        item = self._make_item({"Keywords": "a,b"})
         self.assertEqual(resolve_api.get_keywords(item), ["a", "b"])
 
     def test_falls_back_to_explicit_key(self):
@@ -73,8 +73,8 @@ class TestSetKeywords(unittest.TestCase):
         item = MagicMock()
         item.SetMetadata.return_value = True
         self.assertTrue(resolve_api.set_keywords(item, ["a", "b"]))
-        item.SetMetadata.assert_called_once_with("Keywords", "a, b")
-        item.SetClipProperty.assert_called_once_with("Keywords", "a, b")
+        item.SetMetadata.assert_called_once_with("Keywords", "a,b")
+        item.SetClipProperty.assert_called_once_with("Keywords", "a,b")
 
     def test_returns_false_on_failure(self):
         item = MagicMock()
@@ -92,6 +92,24 @@ class TestSetKeywords(unittest.TestCase):
         resolve_api.set_keywords(item, [])
         item.SetMetadata.assert_called_once_with("Keywords", "")
         item.SetClipProperty.assert_called_once_with("Keywords", "")
+
+    def test_strips_leading_and_trailing_spaces(self):
+        item = MagicMock()
+        item.SetMetadata.return_value = True
+        resolve_api.set_keywords(item, [" Italy", "Rome ", "  Florence  "])
+        item.SetMetadata.assert_called_once_with("Keywords", "Florence,Italy,Rome")
+
+    def test_deduplicates_after_stripping(self):
+        item = MagicMock()
+        item.SetMetadata.return_value = True
+        resolve_api.set_keywords(item, ["Italy", " Italy", "Rome", "Italy"])
+        item.SetMetadata.assert_called_once_with("Keywords", "Italy,Rome")
+
+    def test_drops_whitespace_only_tokens(self):
+        item = MagicMock()
+        item.SetMetadata.return_value = True
+        resolve_api.set_keywords(item, ["Italy", "   ", "Rome"])
+        item.SetMetadata.assert_called_once_with("Keywords", "Italy,Rome")
 
 
 class TestThumbnailFromFilePath(unittest.TestCase):
