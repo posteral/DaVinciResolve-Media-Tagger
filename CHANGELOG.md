@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-03-29
+
+### Fixed
+
+- **Identity Apply button always enabled when cards render.** `renderIdentityCards`
+  now explicitly sets `apply.disabled = false`, so the Apply button is always
+  clickable when detection results arrive — even if a previous clip left it in
+  the "Applied ✓" disabled state.
+
 ## [0.21.5] - 2026-03-27
 
 ### Fixed
