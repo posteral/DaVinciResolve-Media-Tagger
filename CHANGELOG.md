@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-03-31
+
+### Fixed
+
+- **Shot Finder histogram — time gaps between sparse results.** Bars were only
+  rendered for buckets that contained clips, making trips separated by months
+  appear contiguous. `fillBucketGaps()` now enumerates every day/week/month
+  between the first and last bucket and inserts zero-count entries for empty
+  periods. Zero-count bars render as a 2px dark grey floor — visible as gaps,
+  no tooltip, no click handler.
+
 ## [0.23.0] - 2026-03-31
 
 ### Added

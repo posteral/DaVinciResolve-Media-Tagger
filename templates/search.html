@@ -233,6 +233,8 @@
     .hist-bar:hover { background: #5a8a5a; }
     .hist-bar.active { background: #7acf7a; }
     .hist-bar.active:hover { background: #9adf9a; }
+    .hist-bar.empty { background: #2a2a2a; cursor: default; align-self: flex-end; }
+    .hist-bar.empty:hover { background: #2a2a2a; }
     .hist-tooltip {
       display: none;
       position: fixed;
@@ -759,58 +761,105 @@
     }
   }
 
+  // Fill gaps between sparse buckets with zero-count entries so the x-axis
+  // represents real time (trips to Portugal in 2023 and 2024 appear separate).
+  function fillBucketGaps(buckets, bucketSize) {
+    if (buckets.length <= 1) return buckets;
+    const byDate = Object.fromEntries(buckets.map(b => [b.date, b.count]));
+    const filled = [];
+
+    const nextKey = (key) => {
+      if (bucketSize === 'day') {
+        const d = new Date(key + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        return d.toISOString().slice(0, 10);
+      } else if (bucketSize === 'week') {
+        // key = "YYYY-Www"
+        const [yearStr, weekStr] = key.split('-W');
+        let year = parseInt(yearStr, 10);
+        let week = parseInt(weekStr, 10) + 1;
+        // Weeks-in-year: use Dec 28 rule (always in last week of year).
+        const weeksInYear = w => {
+          const d = new Date(w, 11, 28);
+          const day = d.getDay() || 7;
+          d.setDate(d.getDate() + 4 - day);
+          const jan1 = new Date(d.getFullYear(), 0, 1);
+          return Math.ceil((((d - jan1) / 86400000) + 1) / 7);
+        };
+        if (week > weeksInYear(year)) { week = 1; year++; }
+        return `${year}-W${String(week).padStart(2, '0')}`;
+      } else {
+        // key = "YYYY-MM"
+        let [year, month] = key.split('-').map(Number);
+        month++;
+        if (month > 12) { month = 1; year++; }
+        return `${year}-${String(month).padStart(2, '0')}`;
+      }
+    };
+
+    let key = buckets[0].date;
+    const last = buckets[buckets.length - 1].date;
+    while (key <= last) {
+      filled.push({ date: key, count: byDate[key] ?? 0 });
+      key = nextKey(key);
+    }
+    return filled;
+  }
+
   function renderHistogram(data) {
     const wrap = document.getElementById('histogram-wrap');
     const container = document.getElementById('histogram');
-    const buckets = data.buckets || [];
-    if (!buckets.length) { wrap.style.display = 'none'; return; }
+    const rawBuckets = data.buckets || [];
+    if (!rawBuckets.length) { wrap.style.display = 'none'; return; }
 
     _currentBucketSize = data.bucket_size || 'month';
+    const buckets = fillBucketGaps(rawBuckets, _currentBucketSize);
     const maxCount = Math.max(...buckets.map(b => b.count));
     container.innerHTML = '';
 
     buckets.forEach(b => {
+      const isEmpty = b.count === 0;
       const bar = document.createElement('div');
-      bar.className = 'hist-bar' + (b.date === _currentBucketKey ? ' active' : '');
-      bar.style.height = Math.max(2, Math.round((b.count / maxCount) * 56)) + 'px';
+      bar.className = 'hist-bar' + (isEmpty ? ' empty' : '') + (b.date === _currentBucketKey ? ' active' : '');
+      bar.style.height = isEmpty ? '2px' : Math.max(2, Math.round((b.count / maxCount) * 56)) + 'px';
 
-      bar.addEventListener('mouseenter', () => {
-        _histTip.textContent = `${b.date}  ·  ${b.count} clip${b.count === 1 ? '' : 's'}`;
-        _histTip.style.display = 'block';
-      });
-      bar.addEventListener('mousemove', e => {
-        _histTip.style.display = 'block';
-        const tipW = _histTip.offsetWidth;
-        const x = e.clientX + 10 + tipW > window.innerWidth
-          ? e.clientX - tipW - 10
-          : e.clientX + 10;
-        _histTip.style.left = x + 'px';
-        _histTip.style.top = (e.clientY - 28) + 'px';
-      });
-      bar.addEventListener('mouseleave', () => {
-        _histTip.style.display = 'none';
-      });
-
-      bar.addEventListener('click', () => {
-        _histTip.style.display = 'none';
-        if (_currentBucketKey === b.date) {
-          // Click active bar → clear date filter.
-          _currentDateFrom  = null;
-          _currentDateTo    = null;
-          _currentBucketKey = null;
-        } else {
-          _currentBucketKey = b.date;
-          [_currentDateFrom, _currentDateTo] = bucketToDateRange(b.date, _currentBucketSize);
-        }
-        runSearch(_currentQuery, false, true);
-      });
+      if (!isEmpty) {
+        bar.addEventListener('mouseenter', () => {
+          _histTip.textContent = `${b.date}  ·  ${b.count} clip${b.count === 1 ? '' : 's'}`;
+          _histTip.style.display = 'block';
+        });
+        bar.addEventListener('mousemove', e => {
+          _histTip.style.display = 'block';
+          const tipW = _histTip.offsetWidth;
+          const x = e.clientX + 10 + tipW > window.innerWidth
+            ? e.clientX - tipW - 10
+            : e.clientX + 10;
+          _histTip.style.left = x + 'px';
+          _histTip.style.top = (e.clientY - 28) + 'px';
+        });
+        bar.addEventListener('mouseleave', () => {
+          _histTip.style.display = 'none';
+        });
+        bar.addEventListener('click', () => {
+          _histTip.style.display = 'none';
+          if (_currentBucketKey === b.date) {
+            _currentDateFrom  = null;
+            _currentDateTo    = null;
+            _currentBucketKey = null;
+          } else {
+            _currentBucketKey = b.date;
+            [_currentDateFrom, _currentDateTo] = bucketToDateRange(b.date, _currentBucketSize);
+          }
+          runSearch(_currentQuery, false, true);
+        });
+      }
 
       container.appendChild(bar);
     });
 
-    // Date labels at extremes.
-    document.getElementById('hist-label-left').textContent = buckets[0].date;
-    document.getElementById('hist-label-right').textContent = buckets[buckets.length - 1].date;
+    // Date labels at extremes (use original sparse buckets for labels).
+    document.getElementById('hist-label-left').textContent = rawBuckets[0].date;
+    document.getElementById('hist-label-right').textContent = rawBuckets[rawBuckets.length - 1].date;
 
     wrap.style.display = 'block';
   }
