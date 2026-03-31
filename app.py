@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Flask, render_template, jsonify, request, send_file
 from io import BytesIO
 import base64
@@ -7,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import OrderedDict
 import resolve_api
 import identity_recognition
 import identity_registry
@@ -112,6 +115,27 @@ from contextlib import contextmanager
 
 _LOCK_TIMEOUT = 5.0  # seconds — interactive requests give up after this long
 
+# Simple LRU thumbnail cache: proxy_path → PNG bytes (max 500 entries).
+_THUMB_CACHE: OrderedDict[str, bytes] = OrderedDict()
+_THUMB_CACHE_MAX = 500
+_thumb_cache_lock = threading.Lock()
+
+
+def _get_cached_thumbnail(path: str) -> bytes | None:
+    with _thumb_cache_lock:
+        if path in _THUMB_CACHE:
+            _THUMB_CACHE.move_to_end(path)
+            return _THUMB_CACHE[path]
+    return None
+
+
+def _put_cached_thumbnail(path: str, data: bytes) -> None:
+    with _thumb_cache_lock:
+        _THUMB_CACHE[path] = data
+        _THUMB_CACHE.move_to_end(path)
+        while len(_THUMB_CACHE) > _THUMB_CACHE_MAX:
+            _THUMB_CACHE.popitem(last=False)
+
 
 @contextmanager
 def _resolve_lock_timeout():
@@ -178,11 +202,17 @@ def clip_thumbnail():
     if not file_path:
         return "", 204
 
+    # Check cache first.
+    cached = _get_cached_thumbnail(file_path)
+    if cached is not None:
+        return send_file(BytesIO(cached), mimetype="image/png")
+
     # Extract frame with ffmpeg — no Resolve IPC, safe to run freely.
     png = resolve_api.thumbnail_from_file_path(file_path)
     if png is None:
         return "", 204
 
+    _put_cached_thumbnail(file_path, png)
     return send_file(BytesIO(png), mimetype="image/png")
 
 
@@ -609,11 +639,16 @@ def search_build():
             if not ok:
                 return jsonify({"error": "ExportMetadata failed"}), 500
             clips = search_index.parse_export_csv(csv_path)
+            proxy_map = resolve_api.collect_proxy_paths(resolve)
         finally:
             try:
                 os.unlink(csv_path)
             except OSError:
                 pass
+
+    # Attach proxy paths to clip dicts.
+    for c in clips:
+        c["proxy_path"] = proxy_map.get(c["file_name"])
 
     search_index.build_index(_SEARCH_DB_PATH, clips, project_name=project_name)
     print(f"[search] index built: {len(clips)} clips from {project_name!r}")

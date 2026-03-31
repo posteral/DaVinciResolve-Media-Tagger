@@ -317,7 +317,7 @@ class TestClipThumbnailRoute(unittest.TestCase):
 
     def test_returns_204_when_ffmpeg_returns_none(self):
         with patch("resolve_api.thumbnail_from_file_path", return_value=None):
-            resp = self.client.get("/api/clip/thumbnail?path=/proxy/clip.mxf")
+            resp = self.client.get("/api/clip/thumbnail?path=/proxy/no_proxy_clip.mxf")
         self.assertEqual(resp.status_code, 204)
 
 

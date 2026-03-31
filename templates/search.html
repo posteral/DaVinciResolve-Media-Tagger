@@ -88,9 +88,36 @@
       border-radius: 6px;
       padding: 10px 14px;
       display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 4px 16px;
+      grid-template-columns: 96px 1fr auto;
+      gap: 4px 14px;
       align-items: start;
+    }
+
+    .result-thumb {
+      grid-row: 1 / 4;
+      width: 96px;
+      height: 54px;
+      border-radius: 3px;
+      background: #1a1a1a;
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .result-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .result-thumb.no-proxy {
+      border: 1px solid #2a2a2a;
+    }
+    .result-thumb.no-proxy::after {
+      content: '—';
+      color: #444;
+      font-size: 0.8rem;
     }
     .result-row:hover { border-color: #3a3a3a; cursor: pointer; }
     .result-row.selecting { opacity: 0.6; }
@@ -492,6 +519,17 @@
       const row = document.createElement('div');
       row.className = 'result-row';
 
+      // Thumbnail column
+      const thumb = document.createElement('div');
+      thumb.className = 'result-thumb' + (clip.proxy_path ? '' : ' no-proxy');
+      if (clip.proxy_path) {
+        const img = document.createElement('img');
+        img.dataset.src = '/api/clip/thumbnail?path=' + encodeURIComponent(clip.proxy_path);
+        thumb.appendChild(img);
+        _thumbObserver.observe(img);
+      }
+      row.appendChild(thumb);
+
       // Left column
       const left = document.createElement('div');
 
@@ -605,6 +643,20 @@
       });
     }
   }
+
+  // ── Lazy thumbnail loading ────────────────────────────────────────────────
+  const _thumbObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const img = entry.target;
+        if (img.dataset.src) {
+          img.src = img.dataset.src;
+          delete img.dataset.src;
+          _thumbObserver.unobserve(img);
+        }
+      }
+    });
+  }, { rootMargin: '100px' });
 
   // ── Init ──────────────────────────────────────────────────────────────────
   loadStatus();

@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS clips (
     keywords_raw TEXT NOT NULL,
     date_iso     TEXT,
     duration_tc  TEXT,
-    good_take    INTEGER NOT NULL DEFAULT 0
+    good_take    INTEGER NOT NULL DEFAULT 0,
+    proxy_path   TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
@@ -151,11 +152,12 @@ def build_index(db_path: str | Path, clips: list[dict[str, Any]], project_name: 
                 date_iso,
                 c.get("duration_tc") or "",
                 1 if c.get("good_take") else 0,
+                c.get("proxy_path") or None,
             ))
 
         con.executemany(
-            "INSERT INTO clips (file_name, clip_dir, keywords_raw, date_iso, duration_tc, good_take)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO clips (file_name, clip_dir, keywords_raw, date_iso, duration_tc, good_take, proxy_path)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
 
@@ -319,7 +321,7 @@ def search_clips(
 
             rows = con.execute(
                 "SELECT clips.id, clips.file_name, clips.clip_dir,"
-                "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take"
+                "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take, clips.proxy_path"
                 " FROM clips_fts"
                 " JOIN clips ON clips.id = clips_fts.rowid"
                 " WHERE clips_fts MATCH ?"
@@ -339,6 +341,7 @@ def search_clips(
                     "date_iso": row["date_iso"],
                     "duration_tc": row["duration_tc"],
                     "good_take": bool(row["good_take"]),
+                    "proxy_path": row["proxy_path"] or None,
                 })
             return {"total": total, "results": results}
         finally:

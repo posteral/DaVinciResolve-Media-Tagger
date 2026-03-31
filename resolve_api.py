@@ -604,6 +604,43 @@ def _find_clip_by_name_and_dir(
     return None, None
 
 
+def _collect_proxy_paths_recursive(folder: Any, result: dict) -> None:
+    """Walk folder tree, populating result[file_name] = proxy_path."""
+    for clip in _as_sequence(folder.GetClipList()):
+        proxy = clip.GetClipProperty("Proxy Media Path") or ""
+        if proxy:
+            result[clip.GetName()] = proxy
+    for subfolder in _as_sequence(folder.GetSubFolderList()):
+        _collect_proxy_paths_recursive(subfolder, result)
+
+
+def collect_proxy_paths(resolve: Any) -> dict[str, str]:
+    """Return {file_name: proxy_path} for all clips in the project that have a proxy.
+
+    Single tree walk — called once during index build.
+    Returns empty dict on failure.
+    """
+    try:
+        pm = resolve.GetProjectManager()
+        if pm is None:
+            return {}
+        project = pm.GetCurrentProject()
+        if project is None:
+            return {}
+        media_pool = project.GetMediaPool()
+        if media_pool is None:
+            return {}
+        root = media_pool.GetRootFolder()
+        if root is None:
+            return {}
+        result: dict[str, str] = {}
+        _collect_proxy_paths_recursive(root, result)
+        print(f"[search] collected {len(result)} proxy paths")
+        return result
+    except Exception:
+        return {}
+
+
 def select_clip_in_resolve(resolve: Any, file_name: str, clip_dir: str) -> dict:
     """Navigate the media pool to the clip identified by file_name + clip_dir.
 
