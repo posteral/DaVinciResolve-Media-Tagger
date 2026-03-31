@@ -675,6 +675,12 @@ def search_select():
     return jsonify(result)
 
 
+@app.route("/search/api/histogram")
+def search_histogram():
+    q = request.args.get("q", "").strip()
+    return jsonify(search_index.search_histogram(_SEARCH_DB_PATH, q))
+
+
 @app.route("/search/api/keywords")
 def search_keywords():
     return jsonify({"keywords": search_index.get_all_keywords(_SEARCH_DB_PATH)})

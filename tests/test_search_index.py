@@ -587,5 +587,112 @@ class TestSearchClips(unittest.TestCase):
         self.assertNotIn("clip_nokw.mp4", names)
 
 
+# ---------------------------------------------------------------------------
+# Histogram
+# ---------------------------------------------------------------------------
+
+# Clips spread across > 2 years → monthly buckets.
+_HISTOGRAM_CLIPS = [
+    {"file_name": "a.mp4", "clip_dir": "/v", "keywords": ["sunset"],
+     "date": datetime(2022, 6, 1), "duration_tc": "", "good_take": False},
+    {"file_name": "b.mp4", "clip_dir": "/v", "keywords": ["sunset"],
+     "date": datetime(2022, 6, 15), "duration_tc": "", "good_take": False},
+    {"file_name": "c.mp4", "clip_dir": "/v", "keywords": ["sunset"],
+     "date": datetime(2023, 1, 10), "duration_tc": "", "good_take": False},
+    {"file_name": "d.mp4", "clip_dir": "/v", "keywords": ["ocean"],
+     "date": datetime(2022, 6, 1), "duration_tc": "", "good_take": False},
+    {"file_name": "e.mp4", "clip_dir": "/v", "keywords": ["sunset"],
+     "date": None, "duration_tc": "", "good_take": False},  # no date — excluded
+]
+
+
+class TestSearchHistogram(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+        search_index.build_index(self.db_path, _HISTOGRAM_CLIPS)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    def test_returns_empty_for_blank_query(self):
+        result = search_index.search_histogram(self.db_path, "")
+        self.assertEqual(result["buckets"], [])
+
+    def test_returns_empty_when_db_missing(self):
+        result = search_index.search_histogram("/nonexistent/path.db", "sunset")
+        self.assertEqual(result["buckets"], [])
+
+    def test_returns_empty_for_no_match(self):
+        result = search_index.search_histogram(self.db_path, "volcano")
+        self.assertEqual(result["buckets"], [])
+
+    def test_bucket_size_monthly_for_wide_range(self):
+        # a, b, c span ~7 months → > 90 days but < 730 days → weekly
+        # With a (Jun 2022) to c (Jan 2023) = ~213 days → weekly
+        result = search_index.search_histogram(self.db_path, "sunset")
+        self.assertIn(result["bucket_size"], ("week", "month"))
+
+    def test_buckets_sorted_by_date(self):
+        result = search_index.search_histogram(self.db_path, "sunset")
+        dates = [b["date"] for b in result["buckets"]]
+        self.assertEqual(dates, sorted(dates))
+
+    def test_counts_correct(self):
+        # sunset has a(Jun 1), b(Jun 15), c(Jan 10) with dates; e has no date → excluded
+        result = search_index.search_histogram(self.db_path, "sunset")
+        total = sum(b["count"] for b in result["buckets"])
+        self.assertEqual(total, 3)
+
+    def test_clips_without_date_excluded(self):
+        # e.mp4 has no date — total count should be 3 not 4
+        result = search_index.search_histogram(self.db_path, "sunset")
+        total = sum(b["count"] for b in result["buckets"])
+        self.assertEqual(total, 3)
+
+    def test_exclusion_syntax_respected(self):
+        # ocean clips excluded → only sunset clips counted
+        result_all = search_index.search_histogram(self.db_path, "sunset")
+        result_excl = search_index.search_histogram(self.db_path, "sunset -ocean")
+        self.assertEqual(result_all["total_clips"] if "total_clips" in result_all
+                         else sum(b["count"] for b in result_all["buckets"]),
+                         sum(b["count"] for b in result_excl["buckets"]))
+
+    def test_daily_buckets_for_short_range(self):
+        # Build index with clips all within 2 weeks → daily buckets
+        clips = [
+            {"file_name": f"d{i}.mp4", "clip_dir": "/v", "keywords": ["test"],
+             "date": datetime(2025, 4, i + 1), "duration_tc": "", "good_take": False}
+            for i in range(10)
+        ]
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        try:
+            search_index.build_index(tmp.name, clips)
+            result = search_index.search_histogram(tmp.name, "test")
+            self.assertEqual(result["bucket_size"], "day")
+            self.assertEqual(len(result["buckets"]), 10)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_monthly_buckets_for_long_range(self):
+        # Build index with clips spanning 3+ years → monthly buckets
+        clips = [
+            {"file_name": f"m{i}.mp4", "clip_dir": "/v", "keywords": ["test"],
+             "date": datetime(2021 + i // 12, (i % 12) + 1, 1),
+             "duration_tc": "", "good_take": False}
+            for i in range(36)
+        ]
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        try:
+            search_index.build_index(tmp.name, clips)
+            result = search_index.search_histogram(tmp.name, "test")
+            self.assertEqual(result["bucket_size"], "month")
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()

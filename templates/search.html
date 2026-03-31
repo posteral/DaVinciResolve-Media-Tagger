@@ -207,6 +207,51 @@
       margin: 8px auto 24px;
     }
 
+    /* ── Histogram ── */
+    #histogram-wrap {
+      display: none;
+      padding: 8px 24px 0;
+      border-bottom: 1px solid #222;
+    }
+    #histogram {
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 56px;
+      width: 100%;
+      overflow: visible;
+    }
+    .hist-bar {
+      flex: 1;
+      min-width: 2px;
+      background: #3a5a3a;
+      border-radius: 2px 2px 0 0;
+      cursor: default;
+      position: relative;
+      transition: background 0.1s;
+    }
+    .hist-bar:hover { background: #5a8a5a; }
+    .hist-tooltip {
+      display: none;
+      position: fixed;
+      background: #111;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #ccc;
+      font-size: 0.72rem;
+      padding: 3px 7px;
+      white-space: nowrap;
+      z-index: 100;
+      pointer-events: none;
+    }
+    #histogram-labels {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0 6px;
+      font-size: 0.7rem;
+      color: #555;
+    }
+
     /* ── Autocomplete ── */
     .search-bar { position: relative; }
     #ac-dropdown {
@@ -248,6 +293,14 @@
   <button class="btn" id="build-btn" disabled>Rebuild index</button>
   <span id="result-count"></span>
   <span id="search-spinner" style="display:none"><span class="spinner"></span></span>
+</div>
+
+<div id="histogram-wrap">
+  <div id="histogram"></div>
+  <div id="histogram-labels">
+    <span id="hist-label-left"></span>
+    <span id="hist-label-right"></span>
+  </div>
 </div>
 
 <div id="results"></div>
@@ -472,6 +525,7 @@
       document.getElementById('results').innerHTML = '';
       document.getElementById('result-count').textContent = '';
       document.getElementById('load-more').style.display = 'none';
+      document.getElementById('histogram-wrap').style.display = 'none';
       return;
     }
     if (!append) {
@@ -483,8 +537,15 @@
     document.getElementById('search-spinner').style.display = 'inline';
     try {
       const params = new URLSearchParams({ q, limit: LIMIT, offset: _currentOffset });
-      const res = await fetch('/search/api/query?' + params);
+      const [res, histRes] = await Promise.all([
+        fetch('/search/api/query?' + params),
+        append ? Promise.resolve(null) : fetch('/search/api/histogram?' + new URLSearchParams({ q })),
+      ]);
       const data = await res.json();
+      if (histRes) {
+        const histData = await histRes.json();
+        renderHistogram(histData);
+      }
 
       _total = data.total || 0;
       _currentOffset += data.results.length;
@@ -642,6 +703,54 @@
         if (r !== row) { r.classList.remove('selected'); r.querySelector('.select-status')?.remove(); }
       });
     }
+  }
+
+  // ── Histogram ────────────────────────────────────────────────────────────
+
+  // Shared tooltip element for histogram.
+  const _histTip = document.createElement('div');
+  _histTip.className = 'hist-tooltip';
+  document.body.appendChild(_histTip);
+
+  function renderHistogram(data) {
+    const wrap = document.getElementById('histogram-wrap');
+    const container = document.getElementById('histogram');
+    const buckets = data.buckets || [];
+    if (!buckets.length) { wrap.style.display = 'none'; return; }
+
+    const maxCount = Math.max(...buckets.map(b => b.count));
+    container.innerHTML = '';
+
+    buckets.forEach(b => {
+      const bar = document.createElement('div');
+      bar.className = 'hist-bar';
+      bar.style.height = Math.max(2, Math.round((b.count / maxCount) * 56)) + 'px';
+
+      bar.addEventListener('mouseenter', e => {
+        _histTip.textContent = `${b.date}  ·  ${b.count} clip${b.count === 1 ? '' : 's'}`;
+        _histTip.style.display = 'block';
+      });
+      bar.addEventListener('mousemove', e => {
+        _histTip.style.display = 'block';
+        const tipW = _histTip.offsetWidth;
+        const x = e.clientX + 10 + tipW > window.innerWidth
+          ? e.clientX - tipW - 10
+          : e.clientX + 10;
+        _histTip.style.left = x + 'px';
+        _histTip.style.top = (e.clientY - 28) + 'px';
+      });
+      bar.addEventListener('mouseleave', () => {
+        _histTip.style.display = 'none';
+      });
+
+      container.appendChild(bar);
+    });
+
+    // Date labels at extremes.
+    document.getElementById('hist-label-left').textContent = buckets[0].date;
+    document.getElementById('hist-label-right').textContent = buckets[buckets.length - 1].date;
+
+    wrap.style.display = 'block';
   }
 
   // ── Lazy thumbnail loading ────────────────────────────────────────────────

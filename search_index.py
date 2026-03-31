@@ -225,6 +225,100 @@ def get_status(db_path: str | Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Histogram (date distribution of search results)
+# ---------------------------------------------------------------------------
+
+def search_histogram(
+    db_path: str | Path,
+    query: str,
+) -> dict[str, Any]:
+    """Return a date histogram for all clips matching query.
+
+    Auto-selects bucket size based on date range:
+      < 3 months  → daily   (%Y-%m-%d)
+      3m – 2 years → weekly  (ISO week: %Y-W%W)
+      > 2 years   → monthly (%Y-%m)
+
+    Returns:
+        {
+          "buckets": [{"date": str, "count": int}, ...],  # sorted by date
+          "bucket_size": "day" | "week" | "month",
+        }
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return {"buckets": [], "bucket_size": "month"}
+
+    q = query.strip()
+    if not q:
+        return {"buckets": [], "bucket_size": "month"}
+
+    tokens = [m[1] if m[1] else m[2] for m in re.finditer(r'"([^"]+)"|(\S+)', q)]
+    parts = []
+    for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):
+        if m.group(2) is not None:
+            text, excluded = m.group(2), m.group(1) == '-'
+        else:
+            raw = m.group(4)
+            excluded = m.group(3) == '-' or raw.startswith('-')
+            text = raw.lstrip('-')
+        if not text:
+            continue
+        parts.append(f'NOT "{text}"*' if excluded else f'"{text}"*')
+    fts_query = " ".join(parts)
+
+    try:
+        con = sqlite3.connect(str(path))
+        try:
+            rows = con.execute(
+                "SELECT clips.date_iso FROM clips_fts"
+                " JOIN clips ON clips.id = clips_fts.rowid"
+                " WHERE clips_fts MATCH ? AND clips.date_iso IS NOT NULL",
+                (fts_query,),
+            ).fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return {"buckets": [], "bucket_size": "month"}
+
+    if not rows:
+        return {"buckets": [], "bucket_size": "month"}
+
+    # Parse dates, drop unparseable.
+    dates: list[datetime] = []
+    for (iso,) in rows:
+        try:
+            dates.append(datetime.fromisoformat(iso))
+        except (ValueError, TypeError):
+            pass
+
+    if not dates:
+        return {"buckets": [], "bucket_size": "month"}
+
+    min_date = min(dates)
+    max_date = max(dates)
+    span_days = (max_date - min_date).days
+
+    if span_days < 90:
+        bucket_size = "day"
+        key_fn = lambda d: d.strftime("%Y-%m-%d")
+    elif span_days < 730:
+        bucket_size = "week"
+        key_fn = lambda d: d.strftime("%Y-W%W")
+    else:
+        bucket_size = "month"
+        key_fn = lambda d: d.strftime("%Y-%m")
+
+    counts: dict[str, int] = {}
+    for d in dates:
+        k = key_fn(d)
+        counts[k] = counts.get(k, 0) + 1
+
+    buckets = [{"date": k, "count": v} for k, v in sorted(counts.items())]
+    return {"buckets": buckets, "bucket_size": bucket_size}
+
+
+# ---------------------------------------------------------------------------
 # Keywords list (for autocomplete)
 # ---------------------------------------------------------------------------
 
