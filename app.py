@@ -619,5 +619,21 @@ def search_build():
     return jsonify(search_index.get_status(_SEARCH_DB_PATH))
 
 
+@app.route("/search")
+def search_page():
+    return render_template("search.html")
+
+
+@app.route("/search/api/query")
+def search_query():
+    q = request.args.get("q", "").strip()
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+        offset = int(request.args.get("offset", 0))
+    except ValueError:
+        return jsonify({"error": "invalid limit/offset"}), 400
+    return jsonify(search_index.search_clips(_SEARCH_DB_PATH, q, limit, offset))
+
+
 if __name__ == "__main__":
     app.run(debug=False, port=5001, threaded=True)

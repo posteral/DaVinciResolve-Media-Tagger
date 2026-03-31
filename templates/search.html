@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shot Finder</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 24px;
+      background: #111;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; white-space: nowrap; }
+    .header a  { color: #888; font-size: 0.85rem; text-decoration: none; }
+    .header a:hover { color: #ccc; }
+
+    /* ── Search bar ── */
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+    }
+    #search-input {
+      flex: 1;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 1rem;
+      padding: 8px 14px;
+      outline: none;
+    }
+    #search-input:focus { border-color: #5a8a5a; }
+
+    /* ── Status bar ── */
+    .status-bar {
+      padding: 8px 24px;
+      font-size: 0.8rem;
+      color: #666;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 1px solid #222;
+      min-height: 34px;
+    }
+    #result-count { color: #999; }
+
+    /* ── Build button ── */
+    .btn {
+      background: #2a3a2a;
+      border: 1px solid #3a5a3a;
+      border-radius: 4px;
+      color: #8ecf8e;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+      padding: 4px 12px;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #3a4a3a; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Results ── */
+    #results {
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .result-row {
+      background: #222;
+      border: 1px solid #2e2e2e;
+      border-radius: 6px;
+      padding: 10px 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 16px;
+      align-items: start;
+    }
+    .result-row:hover { border-color: #3a3a3a; }
+
+    .result-filename {
+      font-weight: 600;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+    }
+    .result-dir {
+      color: #555;
+      font-size: 0.75rem;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .result-keywords {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .kw-tag {
+      background: #2a2a3a;
+      border: 1px solid #3a3a5a;
+      border-radius: 3px;
+      color: #9898c8;
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 1px 6px;
+    }
+    .kw-tag:hover { background: #3a3a4a; border-color: #5a5a8a; }
+    .kw-tag.match { background: #2a3a2a; border-color: #3a5a3a; color: #8ecf8e; }
+
+    .result-meta {
+      color: #555;
+      font-size: 0.75rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .empty-state {
+      color: #555;
+      padding: 40px 24px;
+      text-align: center;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #444;
+      border-top-color: #8ecf8e;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #load-more {
+      display: none;
+      margin: 8px auto 24px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Shot Finder</h1>
+  <a href="/">← Tagger</a>
+  <div class="search-bar">
+    <input type="text" id="search-input" placeholder="Search keywords… (e.g. Italy sunset)" autocomplete="off" spellcheck="false">
+  </div>
+</div>
+
+<div class="status-bar">
+  <span id="index-status">Checking index…</span>
+  <button class="btn" id="build-btn" disabled>Rebuild index</button>
+  <span id="result-count"></span>
+  <span id="search-spinner" style="display:none"><span class="spinner"></span></span>
+</div>
+
+<div id="results"></div>
+<button class="btn" id="load-more">Load more</button>
+
+<script>
+  let _currentQuery = '';
+  let _currentOffset = 0;
+  let _total = 0;
+  const LIMIT = 50;
+
+  // ── Index status ──────────────────────────────────────────────────────────
+
+  async function loadStatus() {
+    try {
+      const res = await fetch('/search/api/status');
+      const data = await res.json();
+      const el = document.getElementById('index-status');
+      const btn = document.getElementById('build-btn');
+      if (data.state === 'ready') {
+        const d = data.built_at ? new Date(data.built_at).toLocaleString() : '?';
+        el.textContent = `${data.clip_count.toLocaleString()} clips indexed · built ${d}`;
+      } else {
+        el.textContent = 'Index not built';
+      }
+      btn.disabled = false;
+    } catch (_) {
+      document.getElementById('index-status').textContent = 'Could not reach server';
+    }
+  }
+
+  document.getElementById('build-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('build-btn');
+    const el  = document.getElementById('index-status');
+    btn.disabled = true;
+    el.innerHTML = '<span class="spinner"></span> Building index…';
+    try {
+      const res = await fetch('/search/api/build', { method: 'POST' });
+      const data = await res.json();
+      if (data.error) {
+        el.textContent = 'Error: ' + data.error;
+      } else {
+        const d = data.built_at ? new Date(data.built_at).toLocaleString() : '?';
+        el.textContent = `${data.clip_count.toLocaleString()} clips indexed · built ${d}`;
+      }
+    } catch (_) {
+      el.textContent = 'Build failed';
+    }
+    btn.disabled = false;
+  });
+
+  // ── Search ────────────────────────────────────────────────────────────────
+
+  let _debounceTimer = null;
+
+  document.getElementById('search-input').addEventListener('input', e => {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => runSearch(e.target.value.trim()), 250);
+  });
+
+  document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(_debounceTimer);
+      runSearch(e.target.value.trim());
+    }
+  });
+
+  async function runSearch(q, append = false) {
+    if (!q) {
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('result-count').textContent = '';
+      document.getElementById('load-more').style.display = 'none';
+      return;
+    }
+    if (!append) {
+      _currentQuery = q;
+      _currentOffset = 0;
+      document.getElementById('results').innerHTML = '';
+    }
+
+    document.getElementById('search-spinner').style.display = 'inline';
+    try {
+      const params = new URLSearchParams({ q, limit: LIMIT, offset: _currentOffset });
+      const res = await fetch('/search/api/query?' + params);
+      const data = await res.json();
+
+      _total = data.total || 0;
+      _currentOffset += data.results.length;
+
+      document.getElementById('result-count').textContent =
+        _total === 0 ? 'No results' : `${_total.toLocaleString()} clips`;
+
+      renderResults(data.results, q, append);
+
+      const loadMore = document.getElementById('load-more');
+      loadMore.style.display = _currentOffset < _total ? 'block' : 'none';
+    } catch (_) {
+      document.getElementById('result-count').textContent = 'Search error';
+    }
+    document.getElementById('search-spinner').style.display = 'none';
+  }
+
+  document.getElementById('load-more').addEventListener('click', () => {
+    runSearch(_currentQuery, true);
+  });
+
+  function renderResults(results, query, append) {
+    const container = document.getElementById('results');
+    const queryTokens = query.toLowerCase().split(/\s+/);
+
+    if (!append && results.length === 0) {
+      container.innerHTML = '<div class="empty-state">No clips found.</div>';
+      return;
+    }
+
+    results.forEach(clip => {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+
+      // Left column
+      const left = document.createElement('div');
+
+      const fname = document.createElement('div');
+      fname.className = 'result-filename';
+      fname.textContent = clip.file_name;
+      left.appendChild(fname);
+
+      const dir = document.createElement('div');
+      dir.className = 'result-dir';
+      dir.textContent = clip.clip_dir;
+      left.appendChild(dir);
+
+      const kwRow = document.createElement('div');
+      kwRow.className = 'result-keywords';
+      clip.keywords.forEach(kw => {
+        const tag = document.createElement('span');
+        tag.className = 'kw-tag' + (queryTokens.some(t => kw.toLowerCase().includes(t)) ? ' match' : '');
+        tag.textContent = kw;
+        tag.addEventListener('click', () => {
+          const input = document.getElementById('search-input');
+          input.value = kw;
+          runSearch(kw);
+        });
+        kwRow.appendChild(tag);
+      });
+      left.appendChild(kwRow);
+      row.appendChild(left);
+
+      // Right column
+      const meta = document.createElement('div');
+      meta.className = 'result-meta';
+      if (clip.date_iso) {
+        meta.textContent = clip.date_iso.slice(0, 10);
+      }
+      row.appendChild(meta);
+
+      container.appendChild(row);
+    });
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadStatus();
+</script>
+</body>
+</html>

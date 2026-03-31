@@ -204,3 +204,88 @@ def get_status(db_path: str | Path) -> dict[str, Any]:
             con.close()
     except Exception:
         return {"state": "empty", "clip_count": 0, "built_at": None}
+
+
+# ---------------------------------------------------------------------------
+# M2 — Search query
+# ---------------------------------------------------------------------------
+
+def search_clips(
+    db_path: str | Path,
+    query: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Full-text keyword search against the clips_fts index.
+
+    Each whitespace-separated word in query must appear in the keywords of a
+    matching clip (implicit AND via FTS5 prefix queries).
+
+    Returns:
+        {
+          "total": int,           # total matches (before limit/offset)
+          "results": [
+            {
+              "id": int,
+              "file_name": str,
+              "clip_dir": str,
+              "keywords": [str],  # sorted list
+              "date_iso": str|None,
+              "duration_tc": str,
+            },
+            ...
+          ]
+        }
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return {"total": 0, "results": []}
+
+    q = query.strip()
+    if not q:
+        return {"total": 0, "results": []}
+
+    # Build FTS5 query: each token becomes a prefix query so partial words match.
+    # e.g. "italy rome" → '"italy"* "rome"*'
+    tokens = q.split()
+    fts_query = " ".join(f'"{t}"*' for t in tokens)
+
+    try:
+        con = sqlite3.connect(str(path))
+        con.row_factory = sqlite3.Row
+        try:
+            total_row = con.execute(
+                "SELECT COUNT(*) FROM clips_fts"
+                " JOIN clips ON clips.id = clips_fts.rowid"
+                " WHERE clips_fts MATCH ?",
+                (fts_query,),
+            ).fetchone()
+            total = total_row[0] if total_row else 0
+
+            rows = con.execute(
+                "SELECT clips.id, clips.file_name, clips.clip_dir,"
+                "       clips.keywords_raw, clips.date_iso, clips.duration_tc"
+                " FROM clips_fts"
+                " JOIN clips ON clips.id = clips_fts.rowid"
+                " WHERE clips_fts MATCH ?"
+                " ORDER BY clips.date_iso DESC, clips.file_name"
+                " LIMIT ? OFFSET ?",
+                (fts_query, limit, offset),
+            ).fetchall()
+
+            results = []
+            for row in rows:
+                kws = [k for k in row["keywords_raw"].split(",") if k]
+                results.append({
+                    "id": row["id"],
+                    "file_name": row["file_name"],
+                    "clip_dir": row["clip_dir"],
+                    "keywords": kws,
+                    "date_iso": row["date_iso"],
+                    "duration_tc": row["duration_tc"],
+                })
+            return {"total": total, "results": results}
+        finally:
+            con.close()
+    except Exception:
+        return {"total": 0, "results": []}
