@@ -92,7 +92,16 @@
       gap: 4px 16px;
       align-items: start;
     }
-    .result-row:hover { border-color: #3a3a3a; }
+    .result-row:hover { border-color: #3a3a3a; cursor: pointer; }
+    .result-row.selecting { opacity: 0.6; }
+    .result-row.selected { border-color: #4a7a4a; background: #1e2a1e; }
+    .result-row.select-error { border-color: #7a3a3a; background: #2a1e1e; }
+    .select-status {
+      font-size: 0.7rem;
+      margin-top: 4px;
+    }
+    .select-status.ok   { color: #6abf6a; }
+    .select-status.err  { color: #cf6e6e; }
 
     .result-filename {
       font-weight: 600;
@@ -543,8 +552,58 @@
       }
       row.appendChild(meta);
 
+      // Click row → jump to clip in Resolve
+      row.addEventListener('click', e => {
+        // Don't trigger if clicking a keyword tag (those have their own handler).
+        if (e.target.closest('.kw-tag')) return;
+        selectClipInResolve(clip, row);
+      });
+
       container.appendChild(row);
     });
+  }
+
+  async function selectClipInResolve(clip, row) {
+    row.classList.add('selecting');
+    try {
+      const res = await fetch('/search/api/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_name: clip.file_name, clip_dir: clip.clip_dir }),
+      });
+      const data = await res.json();
+      row.classList.remove('selecting');
+      if (data.ok) {
+        row.classList.add('selected');
+        row.classList.remove('select-error');
+        showSelectStatus(row, '✓ Selected in Resolve', 'ok');
+      } else {
+        row.classList.add('select-error');
+        row.classList.remove('selected');
+        showSelectStatus(row, '✗ ' + (data.error || 'Error'), 'err');
+      }
+    } catch (_) {
+      row.classList.remove('selecting');
+      row.classList.add('select-error');
+      showSelectStatus(row, '✗ Could not reach server', 'err');
+    }
+  }
+
+  function showSelectStatus(row, msg, type) {
+    let el = row.querySelector('.select-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'select-status';
+      row.querySelector('.result-dir').after(el);
+    }
+    el.className = 'select-status ' + type;
+    el.textContent = msg;
+    // Clear previous selection highlight from other rows.
+    if (type === 'ok') {
+      document.querySelectorAll('.result-row.selected').forEach(r => {
+        if (r !== row) { r.classList.remove('selected'); r.querySelector('.select-status')?.remove(); }
+      });
+    }
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────

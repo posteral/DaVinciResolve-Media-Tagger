@@ -625,6 +625,21 @@ def search_page():
     return render_template("search.html")
 
 
+@app.route("/search/api/select", methods=["POST"])
+def search_select():
+    data = request.get_json(silent=True) or {}
+    file_name = (data.get("file_name") or "").strip()
+    clip_dir = (data.get("clip_dir") or "").strip()
+    if not file_name or not clip_dir:
+        return jsonify({"ok": False, "error": "file_name and clip_dir required"}), 400
+    with _resolve_lock:
+        resolve = resolve_api.get_resolve()
+        if resolve is None:
+            return jsonify({"ok": False, "error": "Resolve not available"}), 503
+        result = resolve_api.select_clip_in_resolve(resolve, file_name, clip_dir)
+    return jsonify(result)
+
+
 @app.route("/search/api/keywords")
 def search_keywords():
     return jsonify({"keywords": search_index.get_all_keywords(_SEARCH_DB_PATH)})

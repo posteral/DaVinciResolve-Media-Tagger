@@ -583,6 +583,63 @@ def export_metadata(resolve: Any, csv_path: str) -> bool:
         return False
 
 
+def _find_clip_by_name_and_dir(
+    folder: Any, file_name: str, clip_dir: str
+) -> tuple[Any, Any] | tuple[None, None]:
+    """Recursively search for a clip matching file_name and clip_dir.
+
+    Returns (folder, clip) or (None, None) if not found.
+    clip_dir is matched against the directory part of the clip's File Path.
+    """
+    for clip in _as_sequence(folder.GetClipList()):
+        if clip.GetName() == file_name:
+            file_path = clip.GetClipProperty("File Path") or ""
+            # Normalise both sides: strip trailing slash, compare directory part.
+            if os.path.dirname(file_path).rstrip("/\\") == clip_dir.rstrip("/\\"):
+                return folder, clip
+    for subfolder in _as_sequence(folder.GetSubFolderList()):
+        result = _find_clip_by_name_and_dir(subfolder, file_name, clip_dir)
+        if result[0] is not None:
+            return result
+    return None, None
+
+
+def select_clip_in_resolve(resolve: Any, file_name: str, clip_dir: str) -> dict:
+    """Navigate the media pool to the clip identified by file_name + clip_dir.
+
+    Calls SetCurrentFolder on the containing folder and SetSelectedClip on
+    the clip so Resolve shows it in the media pool viewer.
+
+    Returns {"ok": True} on success or {"ok": False, "error": str} on failure.
+    """
+    try:
+        pm = resolve.GetProjectManager()
+        if pm is None:
+            return {"ok": False, "error": "no project manager"}
+        project = pm.GetCurrentProject()
+        if project is None:
+            return {"ok": False, "error": "no current project"}
+        media_pool = project.GetMediaPool()
+        if media_pool is None:
+            return {"ok": False, "error": "no media pool"}
+
+        root = media_pool.GetRootFolder()
+        if root is None:
+            return {"ok": False, "error": "no root folder"}
+
+        folder, clip = _find_clip_by_name_and_dir(root, file_name, clip_dir)
+        if clip is None:
+            return {"ok": False, "error": f"clip not found: {file_name}"}
+
+        folder_result = media_pool.SetCurrentFolder(folder)
+        select_result = media_pool.SetSelectedClip(clip)
+        print(f"[select] file={file_name!r} folder={folder.GetName()!r} "
+              f"SetCurrentFolder={folder_result} SetSelectedClip={select_result}")
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _normalise_ai_keyword(
     text: str, existing_keywords: list[str] | None = None
 ) -> str:

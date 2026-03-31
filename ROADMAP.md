@@ -102,10 +102,11 @@ media pool viewer.
 - Load more pagination (50 per page)
 - `Shot Finder →` link in tagger header; `← Tagger` link in Shot Finder
 
-**M4 — Jump to Resolve**
-- Click result → `POST /search/api/select` `{clip_id}` → server calls
-  `SetCurrentFolder` + `SetSelectedClip`
-- Status feedback in UI (selected / error)
+**M4 — Jump to Resolve** ✅
+- Click any result row → `POST /search/api/select` `{file_name, clip_dir}`
+- Server walks media pool tree to find clip, calls `SetCurrentFolder` + `SetSelectedClip`
+- Row highlights green and shows "✓ Selected in Resolve" (sticks until next selection)
+- Red border + error message if Resolve unavailable or clip not found
 
 **M5 — Smart search (stretch)**
 - "Find similar to current clip" — takes the tagger's current clip keywords
