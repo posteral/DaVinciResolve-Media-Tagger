@@ -170,6 +170,30 @@
       display: none;
       margin: 8px auto 24px;
     }
+
+    /* ── Autocomplete ── */
+    .search-bar { position: relative; }
+    #ac-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #222;
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 100;
+    }
+    .ac-item {
+      cursor: pointer;
+      padding: 7px 14px;
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+    .ac-item:hover, .ac-item.active { background: #2a3a2a; color: #e0e0e0; }
+    .ac-item .ac-match { color: #8ecf8e; }
   </style>
 </head>
 <body>
@@ -178,7 +202,8 @@
   <h1>Shot Finder</h1>
   <a href="/">← Tagger</a>
   <div class="search-bar">
-    <input type="text" id="search-input" placeholder="Search keywords… (e.g. Italy sunset)" autocomplete="off" spellcheck="false">
+    <input type="text" id="search-input" placeholder="Search keywords… (e.g. Italy sunset -indoor)" autocomplete="off" spellcheck="false">
+    <div id="ac-dropdown"></div>
   </div>
 </div>
 
@@ -272,18 +297,134 @@
     }).join(' ');
   }
 
+  // ── Autocomplete ──────────────────────────────────────────────────────────
+
+  let _allKeywords = [];
+  let _acIndex = -1;
+
+  async function loadKeywords() {
+    try {
+      const res = await fetch('/search/api/keywords');
+      const data = await res.json();
+      _allKeywords = data.keywords || [];
+    } catch (_) {}
+  }
+
+  // Return the token the cursor is currently typing (last token in input).
+  function currentTypingToken(val) {
+    // Strip trailing space — if user typed a space they finished the token.
+    if (val.endsWith(' ')) return '';
+    const tokens = val.trim().split(/\s+/);
+    const last = tokens[tokens.length - 1] || '';
+    // Strip leading - or " for matching purposes; keep track of prefix.
+    return last.replace(/^-?"?/, '');
+  }
+
+  function acPrefix(val) {
+    if (val.endsWith(' ')) return '';
+    const tokens = val.trim().split(/\s+/);
+    const last = tokens[tokens.length - 1] || '';
+    return last.match(/^(-?"?)/)[1];
+  }
+
+  function showDropdown(val) {
+    const dropdown = document.getElementById('ac-dropdown');
+    const fragment = currentTypingToken(val);
+    if (!fragment || fragment.length < 1) { hideDropdown(); return; }
+
+    const fragLower = fragment.toLowerCase();
+    // Already-used tokens (to avoid suggesting what's already in the query).
+    const usedLower = new Set(parseQueryTokens(val).map(t => t.text.toLowerCase()));
+
+    const matches = _allKeywords.filter(kw =>
+      kw.toLowerCase().startsWith(fragLower) && !usedLower.has(kw.toLowerCase())
+    ).slice(0, 20);
+
+    if (!matches.length) { hideDropdown(); return; }
+
+    _acIndex = -1;
+    dropdown.innerHTML = '';
+    matches.forEach((kw, i) => {
+      const item = document.createElement('div');
+      item.className = 'ac-item';
+      item.dataset.index = i;
+      // Bold the matching prefix.
+      const highlighted = `<span class="ac-match">${kw.slice(0, fragment.length)}</span>${kw.slice(fragment.length)}`;
+      item.innerHTML = highlighted;
+      item.addEventListener('mousedown', e => {
+        e.preventDefault(); // prevent blur before click
+        commitAutocomplete(kw);
+      });
+      dropdown.appendChild(item);
+    });
+    dropdown.style.display = 'block';
+  }
+
+  function hideDropdown() {
+    document.getElementById('ac-dropdown').style.display = 'none';
+    _acIndex = -1;
+  }
+
+  function commitAutocomplete(kw) {
+    const input = document.getElementById('search-input');
+    const val = input.value;
+    const prefix = acPrefix(val);
+    // Replace the last token with the completed keyword (quoted if multi-word).
+    const tokens = val.trimEnd().split(/\s+/);
+    tokens[tokens.length - 1] = prefix + (kw.includes(' ') ? `"${kw}"` : kw);
+    input.value = tokens.join(' ') + ' ';
+    hideDropdown();
+    input.focus();
+    // Don't run search yet — let user keep adding tokens.
+  }
+
+  function moveAcSelection(dir) {
+    const dropdown = document.getElementById('ac-dropdown');
+    const items = dropdown.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    items[_acIndex]?.classList.remove('active');
+    _acIndex = Math.max(-1, Math.min(items.length - 1, _acIndex + dir));
+    if (_acIndex >= 0) items[_acIndex].classList.add('active');
+  }
+
   let _debounceTimer = null;
 
   document.getElementById('search-input').addEventListener('input', e => {
+    showDropdown(e.target.value);
     clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => runSearch(e.target.value.trim()), 250);
   });
 
   document.getElementById('search-input').addEventListener('keydown', e => {
+    const dropdown = document.getElementById('ac-dropdown');
+    if (dropdown.style.display === 'block') {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveAcSelection(1); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); moveAcSelection(-1); return; }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        if (_acIndex >= 0) {
+          e.preventDefault();
+          const active = dropdown.querySelector('.ac-item.active');
+          if (active) {
+            // Extract plain text (strip HTML).
+            const kw = _allKeywords.find(k =>
+              k.toLowerCase() === (active.textContent || '').toLowerCase()
+            ) || active.textContent;
+            commitAutocomplete(kw);
+            return;
+          }
+        }
+        hideDropdown();
+      }
+      if (e.key === 'Escape') { hideDropdown(); return; }
+    }
     if (e.key === 'Enter') {
       clearTimeout(_debounceTimer);
       runSearch(e.target.value.trim());
     }
+  });
+
+  document.getElementById('search-input').addEventListener('blur', () => {
+    setTimeout(hideDropdown, 150);
   });
 
   async function runSearch(q, append = false) {
@@ -404,6 +545,7 @@
 
   // ── Init ──────────────────────────────────────────────────────────────────
   loadStatus();
+  loadKeywords();
 </script>
 </body>
 </html>

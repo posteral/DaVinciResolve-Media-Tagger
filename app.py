@@ -625,6 +625,11 @@ def search_page():
     return render_template("search.html")
 
 
+@app.route("/search/api/keywords")
+def search_keywords():
+    return jsonify({"keywords": search_index.get_all_keywords(_SEARCH_DB_PATH)})
+
+
 @app.route("/search/api/query")
 def search_query():
     q = request.args.get("q", "").strip()

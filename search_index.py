@@ -223,6 +223,32 @@ def get_status(db_path: str | Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Keywords list (for autocomplete)
+# ---------------------------------------------------------------------------
+
+def get_all_keywords(db_path: str | Path) -> list[str]:
+    """Return a sorted list of all distinct keywords in the index."""
+    path = Path(db_path)
+    if not path.exists():
+        return []
+    try:
+        con = sqlite3.connect(str(path))
+        try:
+            rows = con.execute("SELECT keywords_raw FROM clips WHERE keywords_raw != ''").fetchall()
+        finally:
+            con.close()
+        seen: set[str] = set()
+        for (raw,) in rows:
+            for kw in raw.split(","):
+                kw = kw.strip()
+                if kw:
+                    seen.add(kw)
+        return sorted(seen, key=str.casefold)
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # M2 — Search query
 # ---------------------------------------------------------------------------
 
