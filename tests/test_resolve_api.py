@@ -1246,5 +1246,440 @@ class TestResolveFolder(unittest.TestCase):
         self.assertIsNone(result_clips)
 
 
+class TestNormaliseAiKeywordExtended(unittest.TestCase):
+    """Additional edge-case tests for resolve_api._normalise_ai_keyword."""
+
+    def test_none_existing_keywords_treated_as_empty(self):
+        # Should not raise; without any known proper nouns, result is lowercase.
+        self.assertEqual(
+            resolve_api._normalise_ai_keyword("Rolling Hills", None),
+            "rolling hills",
+        )
+
+    def test_single_word_proper_noun_restored(self):
+        # "Portugal" is a single-word proper noun in existing_keywords.
+        self.assertEqual(
+            resolve_api._normalise_ai_keyword("portugal coastline", ["Portugal"]),
+            "Portugal coastline",
+        )
+
+    def test_generic_word_stays_lowercase_even_if_capitalized_in_keyword(self):
+        # "New" is in _GENERIC — should NOT be restored to capital from multi-word kw.
+        # "New York City" contributes as a phrase, not individual words.
+        result = resolve_api._normalise_ai_keyword("new market square", ["New York City"])
+        # "new" is not restored individually; phrase "new york city" not present.
+        self.assertEqual(result, "new market square")
+
+    def test_phrase_match_restores_whole_phrase(self):
+        kws = ["Parc Monceau"]
+        result = resolve_api._normalise_ai_keyword("parc monceau in paris", kws)
+        self.assertEqual(result, "Parc Monceau in paris")
+
+    def test_phrase_takes_priority_over_word(self):
+        # "New" would not be in known_words (it's generic), but "New York" is a phrase.
+        kws = ["New York"]
+        result = resolve_api._normalise_ai_keyword("new york street", kws)
+        self.assertEqual(result, "New York street")
+
+    def test_lowercase_existing_keyword_not_used_for_restoration(self):
+        # "sunset" starts with lowercase — not a proper noun, should not be registered.
+        result = resolve_api._normalise_ai_keyword("Sunset Beach", ["sunset"])
+        self.assertEqual(result, "sunset beach")
+
+    def test_empty_existing_keywords_list(self):
+        result = resolve_api._normalise_ai_keyword("Eiffel Tower", [])
+        self.assertEqual(result, "eiffel tower")
+
+    def test_whitespace_only_input(self):
+        result = resolve_api._normalise_ai_keyword("   ")
+        self.assertEqual(result, "   ")
+
+    def test_multiple_known_words_all_restored(self):
+        kws = ["Alice", "Bob", "Rome"]
+        result = resolve_api._normalise_ai_keyword("alice and bob in rome", kws)
+        self.assertEqual(result, "Alice and Bob in Rome")
+
+    def test_longer_phrase_matches_before_shorter(self):
+        # "New York City" (3 words) should beat "New York" (2 words) if both present.
+        kws = ["New York City", "New York"]
+        result = resolve_api._normalise_ai_keyword("new york city skyline", kws)
+        self.assertEqual(result, "New York City skyline")
+
+
+class TestNormalizeKeywordsMixedSeparators(unittest.TestCase):
+    """Edge cases for resolve_api._normalize_keywords not covered in existing tests."""
+
+    def test_list_with_whitespace_items_stripped(self):
+        result = resolve_api._normalize_keywords(["  sunset  ", " beach ", ""])
+        self.assertEqual(result, ["sunset", "beach"])
+
+    def test_string_with_only_commas_returns_empty(self):
+        result = resolve_api._normalize_keywords(",,,")
+        self.assertEqual(result, [])
+
+    def test_semicolon_separated_with_spaces(self):
+        result = resolve_api._normalize_keywords("alpha; beta; gamma")
+        self.assertEqual(result, ["alpha", "beta", "gamma"])
+
+    def test_single_item_list_returned_as_single(self):
+        result = resolve_api._normalize_keywords(["only"])
+        self.assertEqual(result, ["only"])
+
+    def test_list_of_empty_strings_returns_empty(self):
+        result = resolve_api._normalize_keywords(["", "  ", ""])
+        self.assertEqual(result, [])
+
+
+class TestFindClipByNameAndDir(unittest.TestCase):
+    """Tests for resolve_api._find_clip_by_name_and_dir."""
+
+    def _make_clip(self, name, file_path):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        clip.GetClipProperty.side_effect = lambda k: file_path if k == "File Path" else ""
+        return clip
+
+    def _make_folder(self, clips, subfolders=None):
+        folder = MagicMock()
+        folder.GetClipList.return_value = clips
+        folder.GetSubFolderList.return_value = subfolders or []
+        return folder
+
+    def test_found_in_root_exact_match(self):
+        clip = self._make_clip("C0040.MP4", "/Volumes/Drive/Video/C0040.MP4")
+        folder = self._make_folder([clip])
+        result_folder, result_clip = resolve_api._find_clip_by_name_and_dir(
+            folder, "C0040.MP4", "/Volumes/Drive/Video"
+        )
+        self.assertIs(result_clip, clip)
+        self.assertIs(result_folder, folder)
+
+    def test_name_matches_but_dir_differs_not_found(self):
+        clip = self._make_clip("C0040.MP4", "/Volumes/DriveA/Video/C0040.MP4")
+        folder = self._make_folder([clip])
+        result_folder, result_clip = resolve_api._find_clip_by_name_and_dir(
+            folder, "C0040.MP4", "/Volumes/DriveB/Video"
+        )
+        self.assertIsNone(result_clip)
+        self.assertIsNone(result_folder)
+
+    def test_found_in_subfolder(self):
+        clip = self._make_clip("clip.mp4", "/vol/sub/clip.mp4")
+        subfolder = self._make_folder([clip])
+        root = self._make_folder([], subfolders=[subfolder])
+        result_folder, result_clip = resolve_api._find_clip_by_name_and_dir(
+            root, "clip.mp4", "/vol/sub"
+        )
+        self.assertIs(result_clip, clip)
+        self.assertIs(result_folder, subfolder)
+
+    def test_trailing_slash_normalised(self):
+        clip = self._make_clip("clip.mp4", "/vol/dir/clip.mp4")
+        folder = self._make_folder([clip])
+        # clip_dir with trailing slash should still match
+        result_folder, result_clip = resolve_api._find_clip_by_name_and_dir(
+            folder, "clip.mp4", "/vol/dir/"
+        )
+        self.assertIs(result_clip, clip)
+
+    def test_not_found_returns_none_none(self):
+        clip = self._make_clip("other.mp4", "/vol/dir/other.mp4")
+        folder = self._make_folder([clip])
+        result_folder, result_clip = resolve_api._find_clip_by_name_and_dir(
+            folder, "missing.mp4", "/vol/dir"
+        )
+        self.assertIsNone(result_clip)
+        self.assertIsNone(result_folder)
+
+    def test_duplicate_filename_different_dirs_returns_correct_one(self):
+        clip_a = self._make_clip("C0040.MP4", "/Volumes/DriveA/Video/C0040.MP4")
+        clip_b = self._make_clip("C0040.MP4", "/Volumes/DriveB/Video/C0040.MP4")
+        sub_a = self._make_folder([clip_a])
+        sub_b = self._make_folder([clip_b])
+        root = self._make_folder([], subfolders=[sub_a, sub_b])
+        _, result_clip = resolve_api._find_clip_by_name_and_dir(
+            root, "C0040.MP4", "/Volumes/DriveB/Video"
+        )
+        self.assertIs(result_clip, clip_b)
+
+
+class TestSelectClipInResolve(unittest.TestCase):
+    """Tests for resolve_api.select_clip_in_resolve."""
+
+    def _make_clip(self, name, file_path):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        clip.GetClipProperty.side_effect = lambda k: file_path if k == "File Path" else ""
+        return clip
+
+    def _make_resolve(self, root_folder):
+        resolve = MagicMock()
+        project = resolve.GetProjectManager.return_value.GetCurrentProject.return_value
+        media_pool = project.GetMediaPool.return_value
+        media_pool.GetRootFolder.return_value = root_folder
+        media_pool.SetCurrentFolder.return_value = True
+        media_pool.SetSelectedClip.return_value = True
+        return resolve, media_pool
+
+    def test_success_returns_ok_true(self):
+        clip = self._make_clip("clip.mp4", "/vol/dir/clip.mp4")
+        folder = MagicMock()
+        folder.GetClipList.return_value = [clip]
+        folder.GetSubFolderList.return_value = []
+        folder.GetName.return_value = "dir"
+        resolve, media_pool = self._make_resolve(folder)
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertTrue(result["ok"])
+
+    def test_clip_not_found_returns_ok_false(self):
+        folder = MagicMock()
+        folder.GetClipList.return_value = []
+        folder.GetSubFolderList.return_value = []
+        resolve, _ = self._make_resolve(folder)
+        result = resolve_api.select_clip_in_resolve(resolve, "missing.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+        self.assertIn("clip not found", result["error"])
+
+    def test_no_project_manager_returns_ok_false(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value = None
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+
+    def test_no_current_project_returns_ok_false(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value = None
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+
+    def test_no_media_pool_returns_ok_false(self):
+        resolve = MagicMock()
+        project = resolve.GetProjectManager.return_value.GetCurrentProject.return_value
+        project.GetMediaPool.return_value = None
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+
+    def test_no_root_folder_returns_ok_false(self):
+        resolve = MagicMock()
+        project = resolve.GetProjectManager.return_value.GetCurrentProject.return_value
+        media_pool = project.GetMediaPool.return_value
+        media_pool.GetRootFolder.return_value = None
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+
+    def test_exception_returns_ok_false_with_error(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.side_effect = Exception("IPC crash")
+        result = resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        self.assertFalse(result["ok"])
+        self.assertIn("IPC crash", result["error"])
+
+    def test_sets_current_folder_and_selected_clip(self):
+        clip = self._make_clip("clip.mp4", "/vol/dir/clip.mp4")
+        folder = MagicMock()
+        folder.GetClipList.return_value = [clip]
+        folder.GetSubFolderList.return_value = []
+        folder.GetName.return_value = "dir"
+        resolve, media_pool = self._make_resolve(folder)
+        resolve_api.select_clip_in_resolve(resolve, "clip.mp4", "/vol/dir")
+        media_pool.SetCurrentFolder.assert_called_once_with(folder)
+        media_pool.SetSelectedClip.assert_called_once_with(clip)
+
+
+class TestCollectProxyPaths(unittest.TestCase):
+    """Tests for resolve_api._collect_proxy_paths_recursive and collect_proxy_paths."""
+
+    def _make_clip(self, name, file_path, proxy_path=""):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        clip.GetClipProperty.side_effect = lambda k: (
+            file_path if k == "File Path" else (proxy_path if k == "Proxy Media Path" else "")
+        )
+        return clip
+
+    def _make_folder(self, clips, subfolders=None):
+        folder = MagicMock()
+        folder.GetClipList.return_value = clips
+        folder.GetSubFolderList.return_value = subfolders or []
+        return folder
+
+    def test_clip_with_proxy_included(self):
+        clip = self._make_clip("clip.mp4", "/vol/dir/clip.mp4", "/proxy/clip.mp4")
+        folder = self._make_folder([clip])
+        result = {}
+        resolve_api._collect_proxy_paths_recursive(folder, result)
+        self.assertIn(("clip.mp4", "/vol/dir"), result)
+        self.assertEqual(result[("clip.mp4", "/vol/dir")], "/proxy/clip.mp4")
+
+    def test_clip_without_proxy_excluded(self):
+        clip = self._make_clip("clip.mp4", "/vol/dir/clip.mp4", "")
+        folder = self._make_folder([clip])
+        result = {}
+        resolve_api._collect_proxy_paths_recursive(folder, result)
+        self.assertEqual(result, {})
+
+    def test_duplicate_filenames_different_dirs_keyed_separately(self):
+        clip_a = self._make_clip("C0040.MP4", "/DriveA/Video/C0040.MP4", "/proxy/A/C0040.MP4")
+        clip_b = self._make_clip("C0040.MP4", "/DriveB/Video/C0040.MP4", "/proxy/B/C0040.MP4")
+        folder = self._make_folder([clip_a, clip_b])
+        result = {}
+        resolve_api._collect_proxy_paths_recursive(folder, result)
+        self.assertEqual(result[("C0040.MP4", "/DriveA/Video")], "/proxy/A/C0040.MP4")
+        self.assertEqual(result[("C0040.MP4", "/DriveB/Video")], "/proxy/B/C0040.MP4")
+
+    def test_collects_from_subfolders_recursively(self):
+        clip = self._make_clip("sub.mp4", "/vol/sub/sub.mp4", "/proxy/sub.mp4")
+        subfolder = self._make_folder([clip])
+        root = self._make_folder([], subfolders=[subfolder])
+        result = {}
+        resolve_api._collect_proxy_paths_recursive(root, result)
+        self.assertIn(("sub.mp4", "/vol/sub"), result)
+
+    def test_collect_proxy_paths_returns_empty_on_no_project(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value = None
+        result = resolve_api.collect_proxy_paths(resolve)
+        self.assertEqual(result, {})
+
+    def test_collect_proxy_paths_returns_empty_on_exception(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.side_effect = Exception("crash")
+        result = resolve_api.collect_proxy_paths(resolve)
+        self.assertEqual(result, {})
+
+    def test_collect_proxy_paths_returns_dict_with_tuple_keys(self):
+        clip = self._make_clip("a.mp4", "/vol/dir/a.mp4", "/proxy/a.mp4")
+        folder = self._make_folder([clip])
+        resolve = MagicMock()
+        project = resolve.GetProjectManager.return_value.GetCurrentProject.return_value
+        media_pool = project.GetMediaPool.return_value
+        media_pool.GetRootFolder.return_value = folder
+        result = resolve_api.collect_proxy_paths(resolve)
+        self.assertIsInstance(result, dict)
+        key = list(result.keys())[0]
+        self.assertIsInstance(key, tuple)
+        self.assertEqual(len(key), 2)
+
+
+class TestGetProjectName(unittest.TestCase):
+    """Tests for resolve_api.get_project_name."""
+
+    def test_returns_project_name(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value.GetName.return_value = "My Project"
+        self.assertEqual(resolve_api.get_project_name(resolve), "My Project")
+
+    def test_returns_empty_string_when_no_project_manager(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value = None
+        self.assertEqual(resolve_api.get_project_name(resolve), "")
+
+    def test_returns_empty_string_when_no_project(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value = None
+        self.assertEqual(resolve_api.get_project_name(resolve), "")
+
+    def test_returns_empty_string_on_exception(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.side_effect = Exception("crash")
+        self.assertEqual(resolve_api.get_project_name(resolve), "")
+
+    def test_returns_empty_string_when_getname_returns_none(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value.GetName.return_value = None
+        self.assertEqual(resolve_api.get_project_name(resolve), "")
+
+
+class TestNavigateClip(unittest.TestCase):
+    """Tests for resolve_api.navigate_clip."""
+
+    def _make_clip(self, media_id):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = media_id
+        clip.GetName.return_value = media_id
+        clip.GetClipProperty.return_value = "01/01/2024 12:00:00"
+        clip.GetMetadata.return_value = {}
+        return clip
+
+    def setUp(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def tearDown(self):
+        resolve_api._folder_cache = None
+        resolve_api._last_suggestions = None
+
+    def _make_resolve_with_clips(self, clips, current_id):
+        resolve = MagicMock()
+        current_clip = next(c for c in clips if c.GetMediaId() == current_id)
+
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        media_pool = project.GetMediaPool.return_value
+        media_pool.SetSelectedClip.return_value = True
+
+        # Pre-warm the folder cache with these clips so navigate uses fast path.
+        resolve_api._folder_cache = ("folder", clips, {}, {}, {})
+
+        # get_selected_media_pool_item path: no timeline, selected clip via media pool
+        project.GetCurrentTimeline.return_value = None
+        media_pool.GetSelectedClips.return_value = {"1": current_clip}
+
+        return resolve, media_pool
+
+    def test_next_returns_following_clip(self):
+        clips = [self._make_clip("a"), self._make_clip("b"), self._make_clip("c")]
+        resolve, media_pool = self._make_resolve_with_clips(clips, "a")
+        item, _ = resolve_api.navigate_clip(resolve, +1)
+        self.assertEqual(item.GetMediaId(), "b")
+
+    def test_prev_returns_preceding_clip(self):
+        clips = [self._make_clip("a"), self._make_clip("b"), self._make_clip("c")]
+        resolve, media_pool = self._make_resolve_with_clips(clips, "c")
+        item, _ = resolve_api.navigate_clip(resolve, -1)
+        self.assertEqual(item.GetMediaId(), "b")
+
+    def test_at_first_clip_prev_returns_none(self):
+        clips = [self._make_clip("a"), self._make_clip("b")]
+        resolve, _ = self._make_resolve_with_clips(clips, "a")
+        item, _ = resolve_api.navigate_clip(resolve, -1)
+        self.assertIsNone(item)
+
+    def test_at_last_clip_next_returns_none(self):
+        clips = [self._make_clip("a"), self._make_clip("b")]
+        resolve, _ = self._make_resolve_with_clips(clips, "b")
+        item, _ = resolve_api.navigate_clip(resolve, +1)
+        self.assertIsNone(item)
+
+    def test_returns_none_when_no_project_manager(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value = None
+        item, _ = resolve_api.navigate_clip(resolve, +1)
+        self.assertIsNone(item)
+
+    def test_returns_none_when_no_current_item(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        project = pm.GetCurrentProject.return_value
+        media_pool = project.GetMediaPool.return_value
+        project.GetCurrentTimeline.return_value = None
+        media_pool.GetSelectedClips.return_value = {}
+        resolve_api._folder_cache = None
+        item, _ = resolve_api.navigate_clip(resolve, +1)
+        self.assertIsNone(item)
+
+    def test_calls_set_selected_clip_on_navigation(self):
+        clips = [self._make_clip("a"), self._make_clip("b")]
+        resolve, media_pool = self._make_resolve_with_clips(clips, "a")
+        resolve_api.navigate_clip(resolve, +1)
+        media_pool.SetSelectedClip.assert_called_once_with(clips[1])
+
+    def test_timing_dict_returned(self):
+        clips = [self._make_clip("a"), self._make_clip("b")]
+        resolve, _ = self._make_resolve_with_clips(clips, "a")
+        _, timing = resolve_api.navigate_clip(resolve, +1)
+        self.assertIsInstance(timing, dict)
+
+
 if __name__ == "__main__":
     unittest.main()

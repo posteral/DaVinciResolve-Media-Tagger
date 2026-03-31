@@ -2,7 +2,7 @@
 
 A browser-based tool for fast, assisted keyword tagging of clips in DaVinci Resolve. It runs alongside Resolve and connects via the official scripting API, letting you navigate clips, apply keywords from multiple suggestion sources, and write them back to the media pool — all without touching Resolve's UI.
 
-**Current release: v0.23.1**
+**Current release: v0.23.2**
 
 ---
 
@@ -197,7 +197,7 @@ The original file is never modified.
 python3 -m unittest discover -s tests -v
 ```
 
-377 tests, all passing.
+426 tests, all passing.
 
 ---
 

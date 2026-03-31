@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-03-31
+
+### Tests
+
+- 49 new tests across 7 new classes in `test_resolve_api.py`:
+  - `TestNormaliseAiKeywordExtended` (10) — `None` existing keywords, single-word
+    proper noun restoration, generic words stay lowercase, phrase-before-word
+    priority, lowercase existing keyword ignored, multiple known words, longer
+    phrase wins over shorter.
+  - `TestNormalizeKeywordsMixedSeparators` (5) — whitespace items in list,
+    only-commas string, semicolons with spaces, single-item list, all-empty list.
+  - `TestFindClipByNameAndDir` (6) — exact match, name-matches-but-dir-differs,
+    found in subfolder, trailing slash normalised, not found, duplicate filenames
+    in different dirs returns the correct clip.
+  - `TestSelectClipInResolve` (8) — success path, clip not found, missing project
+    manager/project/media pool/root folder, exception handling, verifies
+    `SetCurrentFolder` and `SetSelectedClip` are called.
+  - `TestCollectProxyPaths` (7) — clip with proxy included, clip without proxy
+    excluded, duplicate filenames keyed by `(file_name, clip_dir)`, recursive
+    subfolder collection, returns `{}` on no project or exception, keys are
+    tuples.
+  - `TestGetProjectName` (5) — returns name, handles `None` at each IPC level,
+    exception, `GetName()` returning `None`.
+  - `TestNavigateClip` (8) — next/prev navigation, boundary conditions at
+    first/last clip, no project manager, no current item, `SetSelectedClip`
+    called with correct clip, timing dict returned.
+- Total: 426 tests.
+
 ## [0.23.1] - 2026-03-31
 
 ### Fixed
