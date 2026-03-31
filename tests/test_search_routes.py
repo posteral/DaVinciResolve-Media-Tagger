@@ -18,6 +18,7 @@ _SAMPLE_CLIPS = [
         "keywords": ["sunset", "beach"],
         "date": datetime(2025, 1, 1),
         "duration_tc": "00:00:10:00",
+        "good_take": True,
     },
     {
         "file_name": "clip_b.mp4",
@@ -25,6 +26,7 @@ _SAMPLE_CLIPS = [
         "keywords": ["ocean"],
         "date": None,
         "duration_tc": "00:00:05:00",
+        "good_take": False,
     },
 ]
 

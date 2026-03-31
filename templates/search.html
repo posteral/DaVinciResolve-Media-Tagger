@@ -98,6 +98,21 @@
       font-weight: 600;
       color: #e0e0e0;
       font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .good-take-badge {
+      background: #2a3a1a;
+      border: 1px solid #4a7a2a;
+      border-radius: 3px;
+      color: #8ecf4a;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 1px 5px;
+      text-transform: uppercase;
+      white-space: nowrap;
     }
     .result-dir {
       color: #555;
@@ -226,6 +241,18 @@
 
   // ── Search ────────────────────────────────────────────────────────────────
 
+  // Parse a query string into tokens, respecting "quoted phrases".
+  // e.g. 'Sawyer "rolling hills"' → ['Sawyer', 'rolling hills']
+  function parseQueryTokens(q) {
+    const tokens = [];
+    const re = /"([^"]+)"|(\S+)/g;
+    let m;
+    while ((m = re.exec(q)) !== null) {
+      tokens.push(m[1] !== undefined ? m[1] : m[2]);
+    }
+    return tokens;
+  }
+
   let _debounceTimer = null;
 
   document.getElementById('search-input').addEventListener('input', e => {
@@ -281,7 +308,7 @@
 
   function renderResults(results, query, append) {
     const container = document.getElementById('results');
-    const queryTokens = query.toLowerCase().split(/\s+/);
+    const queryTokens = parseQueryTokens(query).map(t => t.toLowerCase());
 
     if (!append && results.length === 0) {
       container.innerHTML = '<div class="empty-state">No clips found.</div>';
@@ -298,6 +325,12 @@
       const fname = document.createElement('div');
       fname.className = 'result-filename';
       fname.textContent = clip.file_name;
+      if (clip.good_take) {
+        const badge = document.createElement('span');
+        badge.className = 'good-take-badge';
+        badge.textContent = 'Good Take';
+        fname.appendChild(badge);
+      }
       left.appendChild(fname);
 
       const dir = document.createElement('div');
@@ -313,8 +346,13 @@
         tag.textContent = kw;
         tag.addEventListener('click', () => {
           const input = document.getElementById('search-input');
-          input.value = kw;
-          runSearch(kw);
+          const token = kw.includes(' ') ? `"${kw}"` : kw;
+          const existingTokens = parseQueryTokens(input.value);
+          const alreadyPresent = existingTokens.some(t => t.toLowerCase() === kw.toLowerCase());
+          if (!alreadyPresent) {
+            input.value = (input.value.trim() + ' ' + token).trim();
+          }
+          runSearch(input.value.trim());
         });
         kwRow.appendChild(tag);
       });

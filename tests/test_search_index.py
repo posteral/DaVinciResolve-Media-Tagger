@@ -17,13 +17,13 @@ import search_index
 
 # Minimal CSV with realistic column set but entirely fake data.
 _FIXTURE_CSV = textwrap.dedent("""\
-    File Name,Clip Directory,Duration TC,Shot Frame Rate,Keywords,People,Date Modified
-    BIN_ENTRY,,07:15:32:20,24.000,,,
-    20240101_C0001.MP4,/Volumes/FakeDrive/2024/Video,00:00:11:26,50.000,"sunset,beach,Alice",Alice,Wed Jan  1 10:00:00 2025
-    20240102_C0002.MP4,/Volumes/FakeDrive/2024/Video,00:00:05:10,25.000,"ocean,waves",Bob,Thu Jan  2 12:30:00 2025
-    20240103_C0003.MP4,/Volumes/FakeDrive/2024/Video,00:00:30:00,50.000,,,"Fri Jan  3 09:15:00 2025"
-    20240104_C0004.MP4,/Volumes/FakeDrive/2024/Video,00:00:08:00,100.000,"rolling hills",,"Sat Jan  4 14:00:00 2025"
-    NO_FILENAME,,00:00:01:00,25.000,sunset,,Mon Jan  6 08:00:00 2025
+    File Name,Clip Directory,Duration TC,Shot Frame Rate,Keywords,People,Date Modified,Good Take
+    BIN_ENTRY,,07:15:32:20,24.000,,,,0
+    20240101_C0001.MP4,/Volumes/FakeDrive/2024/Video,00:00:11:26,50.000,"sunset,beach,Alice",Alice,Wed Jan  1 10:00:00 2025,1
+    20240102_C0002.MP4,/Volumes/FakeDrive/2024/Video,00:00:05:10,25.000,"ocean,waves",Bob,Thu Jan  2 12:30:00 2025,0
+    20240103_C0003.MP4,/Volumes/FakeDrive/2024/Video,00:00:30:00,50.000,,,"Fri Jan  3 09:15:00 2025",0
+    20240104_C0004.MP4,/Volumes/FakeDrive/2024/Video,00:00:08:00,100.000,"rolling hills",,"Sat Jan  4 14:00:00 2025",1
+    NO_FILENAME,,00:00:01:00,25.000,sunset,,Mon Jan  6 08:00:00 2025,0
 """)
 
 
@@ -134,6 +134,22 @@ class TestParseExportCsvText(unittest.TestCase):
             self.assertIn("keywords", c)
             self.assertIn("date", c)
             self.assertIn("duration_tc", c)
+            self.assertIn("good_take", c)
+
+    def test_good_take_true_when_column_is_1(self):
+        clips = self._parse()
+        c = next(c for c in clips if c["file_name"] == "20240101_C0001.MP4")
+        self.assertTrue(c["good_take"])
+
+    def test_good_take_false_when_column_is_0(self):
+        clips = self._parse()
+        c = next(c for c in clips if c["file_name"] == "20240102_C0002.MP4")
+        self.assertFalse(c["good_take"])
+
+    def test_good_take_false_when_column_absent(self):
+        csv = "File Name,Clip Directory,Keywords\nclip.mp4,/vol/dir,sunset\n"
+        clips = search_index.parse_export_csv_text(csv)
+        self.assertFalse(clips[0]["good_take"])
 
     def test_empty_csv_returns_empty_list(self):
         clips = search_index.parse_export_csv_text("File Name,Clip Directory,Keywords\n")
@@ -187,6 +203,7 @@ _SAMPLE_CLIPS = [
         "keywords": ["sunset", "beach"],
         "date": datetime(2025, 1, 1, 10, 0, 0),
         "duration_tc": "00:00:10:00",
+        "good_take": True,
     },
     {
         "file_name": "clip_b.mp4",
@@ -194,6 +211,7 @@ _SAMPLE_CLIPS = [
         "keywords": ["ocean"],
         "date": None,
         "duration_tc": "00:00:05:00",
+        "good_take": False,
     },
     {
         "file_name": "clip_c.mp4",
@@ -201,6 +219,7 @@ _SAMPLE_CLIPS = [
         "keywords": [],
         "date": datetime(2025, 6, 15),
         "duration_tc": "",
+        "good_take": False,
     },
 ]
 
@@ -260,6 +279,17 @@ class TestBuildIndex(unittest.TestCase):
         ).fetchone()
         con.close()
         self.assertIsNone(row[0])
+
+    def test_good_take_stored_correctly(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS)
+        con = sqlite3.connect(str(self.db_path))
+        rows = {
+            r[0]: r[1]
+            for r in con.execute("SELECT file_name, good_take FROM clips").fetchall()
+        }
+        con.close()
+        self.assertEqual(rows["clip_a.mp4"], 1)
+        self.assertEqual(rows["clip_b.mp4"], 0)
 
     def test_meta_built_at_present(self):
         search_index.build_index(self.db_path, _SAMPLE_CLIPS)
@@ -342,10 +372,219 @@ class TestGetStatus(unittest.TestCase):
         status = search_index.get_status(self.db_path)
         self.assertIsInstance(status["built_at"], str)
 
+    def test_project_name_stored_and_returned(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS, project_name="MyProject")
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["project_name"], "MyProject")
+
+    def test_project_name_empty_string_when_not_set(self):
+        search_index.build_index(self.db_path, _SAMPLE_CLIPS, project_name="")
+        status = search_index.get_status(self.db_path)
+        self.assertEqual(status["project_name"], "")
+
     def test_empty_on_corrupt_db(self):
         self.db_path.write_bytes(b"not a sqlite file")
         status = search_index.get_status(self.db_path)
         self.assertEqual(status["state"], "empty")
+
+    def test_empty_status_has_project_name_none(self):
+        missing = self.db_path.parent / "nonexistent_xyz.db"
+        status = search_index.get_status(missing)
+        self.assertIsNone(status["project_name"])
+
+
+# ---------------------------------------------------------------------------
+# M2 — search_clips
+# ---------------------------------------------------------------------------
+
+_SEARCH_CLIPS = [
+    {
+        "file_name": "clip_sunset.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["sunset", "beach", "France"],
+        "date": datetime(2025, 6, 1),
+        "duration_tc": "00:00:10:00",
+        "good_take": True,
+    },
+    {
+        "file_name": "clip_ocean.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["ocean", "waves", "France"],
+        "date": datetime(2025, 5, 1),
+        "duration_tc": "00:00:05:00",
+        "good_take": False,
+    },
+    {
+        "file_name": "clip_hills.mp4",
+        "clip_dir": "/vol/b",
+        "keywords": ["rolling hills", "France", "countryside"],
+        "date": datetime(2025, 4, 1),
+        "duration_tc": "00:00:08:00",
+        "good_take": False,
+    },
+    {
+        "file_name": "clip_nokw.mp4",
+        "clip_dir": "/vol/b",
+        "keywords": [],
+        "date": datetime(2025, 3, 1),
+        "duration_tc": "00:00:03:00",
+        "good_take": False,
+    },
+]
+
+
+class TestSearchClips(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+        search_index.build_index(self.db_path, _SEARCH_CLIPS)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    # ── basic behaviour ──────────────────────────────────────────────────────
+
+    def test_returns_empty_when_db_missing(self):
+        result = search_index.search_clips("/nonexistent/path.db", "sunset")
+        self.assertEqual(result, {"total": 0, "results": []})
+
+    def test_returns_empty_for_blank_query(self):
+        result = search_index.search_clips(self.db_path, "")
+        self.assertEqual(result, {"total": 0, "results": []})
+
+    def test_returns_empty_for_whitespace_query(self):
+        result = search_index.search_clips(self.db_path, "   ")
+        self.assertEqual(result, {"total": 0, "results": []})
+
+    def test_single_keyword_match(self):
+        result = search_index.search_clips(self.db_path, "sunset")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_sunset.mp4")
+
+    def test_no_match_returns_zero_total(self):
+        result = search_index.search_clips(self.db_path, "volcano")
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["results"], [])
+
+    def test_result_has_all_expected_keys(self):
+        result = search_index.search_clips(self.db_path, "sunset")
+        r = result["results"][0]
+        for key in ("id", "file_name", "clip_dir", "keywords", "date_iso", "duration_tc", "good_take"):
+            self.assertIn(key, r)
+
+    def test_keywords_returned_as_list(self):
+        result = search_index.search_clips(self.db_path, "sunset")
+        kws = result["results"][0]["keywords"]
+        self.assertIsInstance(kws, list)
+        self.assertIn("sunset", kws)
+
+    def test_good_take_returned_as_bool(self):
+        result = search_index.search_clips(self.db_path, "sunset")
+        self.assertIs(result["results"][0]["good_take"], True)
+
+    def test_good_take_false_for_non_good_take(self):
+        result = search_index.search_clips(self.db_path, "ocean")
+        self.assertIs(result["results"][0]["good_take"], False)
+
+    # ── AND semantics ────────────────────────────────────────────────────────
+
+    def test_multi_token_query_requires_all(self):
+        # Both sunset AND France → only clip_sunset.mp4
+        result = search_index.search_clips(self.db_path, "sunset France")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_sunset.mp4")
+
+    def test_multi_token_no_match_when_one_missing(self):
+        # sunset AND volcano → no clip has both
+        result = search_index.search_clips(self.db_path, "sunset volcano")
+        self.assertEqual(result["total"], 0)
+
+    def test_france_matches_three_clips(self):
+        result = search_index.search_clips(self.db_path, "France")
+        self.assertEqual(result["total"], 3)
+
+    # ── prefix matching ──────────────────────────────────────────────────────
+
+    def test_prefix_match_partial_word(self):
+        # "sun" should prefix-match "sunset"
+        result = search_index.search_clips(self.db_path, "sun")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_sunset.mp4")
+
+    def test_prefix_match_case_insensitive(self):
+        result_lower = search_index.search_clips(self.db_path, "france")
+        result_upper = search_index.search_clips(self.db_path, "France")
+        self.assertEqual(result_lower["total"], result_upper["total"])
+
+    # ── quoted phrase matching ───────────────────────────────────────────────
+
+    def test_quoted_phrase_matches_multiword_keyword(self):
+        result = search_index.search_clips(self.db_path, '"rolling hills"')
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_hills.mp4")
+
+    def test_quoted_phrase_with_additional_token(self):
+        # "rolling hills" AND France → clip_hills.mp4 has both
+        result = search_index.search_clips(self.db_path, '"rolling hills" France')
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_hills.mp4")
+
+    def test_quoted_phrase_no_match_for_nonexistent_phrase(self):
+        # "sunset ocean" is not a keyword phrase on any clip
+        result = search_index.search_clips(self.db_path, '"sunset ocean"')
+        self.assertEqual(result["total"], 0)
+
+    def test_bare_words_still_work_alongside_quoted_phrase(self):
+        result = search_index.search_clips(self.db_path, 'beach "rolling hills"')
+        # no clip has both beach and rolling hills
+        self.assertEqual(result["total"], 0)
+
+    # ── sorting ──────────────────────────────────────────────────────────────
+
+    def test_good_take_clips_sorted_first(self):
+        # France matches 3 clips; clip_sunset.mp4 is the only good_take
+        result = search_index.search_clips(self.db_path, "France")
+        self.assertEqual(result["results"][0]["file_name"], "clip_sunset.mp4")
+
+    def test_non_good_take_sorted_by_date_desc(self):
+        # Among non-good-take France clips: ocean(May) > hills(Apr)
+        result = search_index.search_clips(self.db_path, "France")
+        non_gt = [r for r in result["results"] if not r["good_take"]]
+        self.assertEqual(non_gt[0]["file_name"], "clip_ocean.mp4")
+        self.assertEqual(non_gt[1]["file_name"], "clip_hills.mp4")
+
+    # ── pagination ───────────────────────────────────────────────────────────
+
+    def test_limit_restricts_result_count(self):
+        result = search_index.search_clips(self.db_path, "France", limit=2)
+        self.assertEqual(len(result["results"]), 2)
+        self.assertEqual(result["total"], 3)
+
+    def test_offset_skips_results(self):
+        result_all = search_index.search_clips(self.db_path, "France")
+        result_offset = search_index.search_clips(self.db_path, "France", limit=50, offset=1)
+        self.assertEqual(len(result_offset["results"]), 2)
+        self.assertEqual(result_offset["results"][0]["file_name"],
+                         result_all["results"][1]["file_name"])
+
+    def test_offset_beyond_total_returns_empty_results(self):
+        result = search_index.search_clips(self.db_path, "France", offset=100)
+        self.assertEqual(result["results"], [])
+        self.assertEqual(result["total"], 3)
+
+    def test_total_unchanged_by_limit(self):
+        r1 = search_index.search_clips(self.db_path, "France", limit=1)
+        r2 = search_index.search_clips(self.db_path, "France", limit=50)
+        self.assertEqual(r1["total"], r2["total"])
+
+    # ── clip with no keywords ────────────────────────────────────────────────
+
+    def test_clip_with_no_keywords_not_returned(self):
+        # clip_nokw has no keywords — should never appear in any search
+        result = search_index.search_clips(self.db_path, "France")
+        names = [r["file_name"] for r in result["results"]]
+        self.assertNotIn("clip_nokw.mp4", names)
 
 
 if __name__ == "__main__":

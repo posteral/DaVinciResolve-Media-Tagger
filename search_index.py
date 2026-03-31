@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +44,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
         keywords    : list[str]     — parsed keyword list (may be empty)
         date        : datetime|None — Date Modified, or None if unparseable
         duration_tc : str           — Duration TC string (e.g. "00:00:11:26")
+        good_take   : bool          — True if Good Take column is "1"
 
     Rows without a Clip Directory are skipped (they are bin/folder entries).
     """
@@ -65,6 +67,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
                 "keywords": _parse_keywords(row.get("Keywords") or ""),
                 "date": _parse_date(row.get("Date Modified") or ""),
                 "duration_tc": (row.get("Duration TC") or "").strip(),
+                "good_take": (row.get("Good Take") or "").strip() == "1",
             })
 
     return clips
@@ -88,6 +91,7 @@ def parse_export_csv_text(text: str) -> list[dict[str, Any]]:
             "keywords": _parse_keywords(row.get("Keywords") or ""),
             "date": _parse_date(row.get("Date Modified") or ""),
             "duration_tc": (row.get("Duration TC") or "").strip(),
+            "good_take": (row.get("Good Take") or "").strip() == "1",
         })
     return clips
 
@@ -108,7 +112,8 @@ CREATE TABLE IF NOT EXISTS clips (
     clip_dir     TEXT NOT NULL,
     keywords_raw TEXT NOT NULL,
     date_iso     TEXT,
-    duration_tc  TEXT
+    duration_tc  TEXT,
+    good_take    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
@@ -145,11 +150,12 @@ def build_index(db_path: str | Path, clips: list[dict[str, Any]], project_name: 
                 keywords_raw,
                 date_iso,
                 c.get("duration_tc") or "",
+                1 if c.get("good_take") else 0,
             ))
 
         con.executemany(
-            "INSERT INTO clips (file_name, clip_dir, keywords_raw, date_iso, duration_tc)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO clips (file_name, clip_dir, keywords_raw, date_iso, duration_tc, good_take)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             rows,
         )
 
@@ -255,9 +261,10 @@ def search_clips(
     if not q:
         return {"total": 0, "results": []}
 
-    # Build FTS5 query: each token becomes a prefix query so partial words match.
-    # e.g. "italy rome" → '"italy"* "rome"*'
-    tokens = q.split()
+    # Build FTS5 query: parse quoted phrases and bare words, each becomes a
+    # prefix query so partial words match.
+    # e.g. 'italy "rolling hills"' → '"italy"* "rolling hills"*'
+    tokens = [m[1] if m[1] else m[2] for m in re.finditer(r'"([^"]+)"|(\S+)', q)]
     fts_query = " ".join(f'"{t}"*' for t in tokens)
 
     try:
@@ -274,11 +281,11 @@ def search_clips(
 
             rows = con.execute(
                 "SELECT clips.id, clips.file_name, clips.clip_dir,"
-                "       clips.keywords_raw, clips.date_iso, clips.duration_tc"
+                "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take"
                 " FROM clips_fts"
                 " JOIN clips ON clips.id = clips_fts.rowid"
                 " WHERE clips_fts MATCH ?"
-                " ORDER BY clips.date_iso DESC, clips.file_name"
+                " ORDER BY clips.good_take DESC, clips.date_iso DESC, clips.file_name"
                 " LIMIT ? OFFSET ?",
                 (fts_query, limit, offset),
             ).fetchall()
@@ -293,6 +300,7 @@ def search_clips(
                     "keywords": kws,
                     "date_iso": row["date_iso"],
                     "duration_tc": row["duration_tc"],
+                    "good_take": bool(row["good_take"]),
                 })
             return {"total": total, "results": results}
         finally:
