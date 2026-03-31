@@ -87,18 +87,20 @@ media pool viewer.
   - `GET /search/api/status` and `POST /search/api/build` routes live in `app.py`
   - DB written to `search.db` next to `app.py` (gitignored)
 
-**M2 — Search API**
-- `GET /search/api/clips?q=sunset+corsica` → paginated results with clip
-  metadata and match score
-- `GET /search/api/keywords` → full keyword list for browse/autocomplete
-- Full-text search via SQLite FTS5
+**M2 — Search API** ✅
+- `GET /search/api/query?q=&limit=&offset=` → paginated FTS5 results
+- Full-text search via SQLite FTS5 with prefix matching
+- Quoted phrase support (`"rolling hills"`), exclusion syntax (`-Marc`)
+- Results sorted: Good Takes first, then date descending
 
-**M3 — Search UI**
-- New page at `/search`
-- Search input with autocomplete from keyword list
-- Result grid: thumbnail + name + date + keyword tags
-- Keyword tags clickable (add to search query)
-- "Rebuild index" button with last-built timestamp
+**M3 — Search UI** ✅
+- New page at `/search` with dark theme matching tagger
+- Debounced search input; quoted phrase + `-exclusion` syntax supported
+- Result cards: filename, Good Take badge, clip dir, keyword tags, date
+- Keyword tags: click to add (green), click again to exclude (red), click again to remove
+- "Rebuild index" button with project name + last-built timestamp
+- Load more pagination (50 per page)
+- `Shot Finder →` link in tagger header; `← Tagger` link in Shot Finder
 
 **M4 — Jump to Resolve**
 - Click result → `POST /search/api/select` `{clip_id}` → server calls
