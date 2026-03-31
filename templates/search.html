@@ -139,6 +139,7 @@
     }
     .kw-tag:hover { background: #3a3a4a; border-color: #5a5a8a; }
     .kw-tag.match { background: #2a3a2a; border-color: #3a5a3a; color: #8ecf8e; }
+    .kw-tag.exclude { background: #3a1a1a; border-color: #7a2a2a; color: #cf6e6e; }
 
     .result-meta {
       color: #555;
@@ -241,16 +242,34 @@
 
   // ── Search ────────────────────────────────────────────────────────────────
 
-  // Parse a query string into tokens, respecting "quoted phrases".
-  // e.g. 'Sawyer "rolling hills"' → ['Sawyer', 'rolling hills']
+  // Parse a query string into token objects: {text, excluded}.
+  // Supports quoted phrases and -exclusions.
+  // e.g. 'Sawyer "rolling hills" -Marc' →
+  //   [{text:'Sawyer',excluded:false}, {text:'rolling hills',excluded:false}, {text:'Marc',excluded:true}]
   function parseQueryTokens(q) {
     const tokens = [];
-    const re = /"([^"]+)"|(\S+)/g;
+    const re = /(-?)"([^"]+)"|(-?)(\S+)/g;
     let m;
     while ((m = re.exec(q)) !== null) {
-      tokens.push(m[1] !== undefined ? m[1] : m[2]);
+      if (m[2] !== undefined) {
+        // quoted phrase, possibly prefixed with -
+        tokens.push({ text: m[2], excluded: m[1] === '-' });
+      } else {
+        const raw = m[4];
+        const excluded = m[3] === '-' || raw.startsWith('-');
+        tokens.push({ text: excluded ? raw.replace(/^-/, '') : raw, excluded });
+      }
     }
     return tokens;
+  }
+
+  // Serialise a token list back to a query string.
+  function serializeTokens(tokens) {
+    return tokens.map(t => {
+      const prefix = t.excluded ? '-' : '';
+      const body = t.text.includes(' ') ? `"${t.text}"` : t.text;
+      return prefix + body;
+    }).join(' ');
   }
 
   let _debounceTimer = null;
@@ -308,7 +327,7 @@
 
   function renderResults(results, query, append) {
     const container = document.getElementById('results');
-    const queryTokens = parseQueryTokens(query).map(t => t.toLowerCase());
+    const queryTokens = parseQueryTokens(query);
 
     if (!append && results.length === 0) {
       container.innerHTML = '<div class="empty-state">No clips found.</div>';
@@ -341,17 +360,29 @@
       const kwRow = document.createElement('div');
       kwRow.className = 'result-keywords';
       clip.keywords.forEach(kw => {
+        const kwLower = kw.toLowerCase();
+        const matchedToken = queryTokens.find(t => kwLower === t.text.toLowerCase());
+        let tagClass = 'kw-tag';
+        if (matchedToken) tagClass += matchedToken.excluded ? ' exclude' : ' match';
+
         const tag = document.createElement('span');
-        tag.className = 'kw-tag' + (queryTokens.some(t => kw.toLowerCase().includes(t)) ? ' match' : '');
+        tag.className = tagClass;
         tag.textContent = kw;
         tag.addEventListener('click', () => {
           const input = document.getElementById('search-input');
-          const token = kw.includes(' ') ? `"${kw}"` : kw;
-          const existingTokens = parseQueryTokens(input.value);
-          const alreadyPresent = existingTokens.some(t => t.toLowerCase() === kw.toLowerCase());
-          if (!alreadyPresent) {
-            input.value = (input.value.trim() + ' ' + token).trim();
+          const tokens = parseQueryTokens(input.value);
+          const idx = tokens.findIndex(t => t.text.toLowerCase() === kwLower);
+          if (idx === -1) {
+            // not in query → add as inclusion
+            tokens.push({ text: kw, excluded: false });
+          } else if (!tokens[idx].excluded) {
+            // included → convert to exclusion
+            tokens[idx] = { text: kw, excluded: true };
+          } else {
+            // excluded → remove entirely
+            tokens.splice(idx, 1);
           }
+          input.value = serializeTokens(tokens);
           runSearch(input.value.trim());
         });
         kwRow.appendChild(tag);

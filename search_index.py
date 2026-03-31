@@ -261,11 +261,23 @@ def search_clips(
     if not q:
         return {"total": 0, "results": []}
 
-    # Build FTS5 query: parse quoted phrases and bare words, each becomes a
-    # prefix query so partial words match.
-    # e.g. 'italy "rolling hills"' → '"italy"* "rolling hills"*'
-    tokens = [m[1] if m[1] else m[2] for m in re.finditer(r'"([^"]+)"|(\S+)', q)]
-    fts_query = " ".join(f'"{t}"*' for t in tokens)
+    # Build FTS5 query: parse quoted phrases, bare words, and -exclusions.
+    # Each inclusion becomes a prefix query; exclusions use NOT.
+    # e.g. 'italy "rolling hills" -Marc' →
+    #      '"italy"* "rolling hills"* NOT "Marc"*'
+    parts = []
+    for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):
+        if m.group(2) is not None:
+            text, excluded = m.group(2), m.group(1) == '-'
+        else:
+            raw = m.group(4)
+            excluded = m.group(3) == '-' or raw.startswith('-')
+            text = raw.lstrip('-')
+        if not text:
+            continue
+        clause = f'NOT "{text}"*' if excluded else f'"{text}"*'
+        parts.append(clause)
+    fts_query = " ".join(parts)
 
     try:
         con = sqlite3.connect(str(path))
