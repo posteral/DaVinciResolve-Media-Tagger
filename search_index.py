@@ -119,7 +119,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
 """
 
 
-def build_index(db_path: str | Path, clips: list[dict[str, Any]]) -> None:
+def build_index(db_path: str | Path, clips: list[dict[str, Any]], project_name: str = "") -> None:
     """Create (or replace) the SQLite index at db_path from a list of clip dicts.
 
     Drops and recreates the clips and clips_fts tables so the index is always
@@ -168,20 +168,25 @@ def build_index(db_path: str | Path, clips: list[dict[str, Any]]) -> None:
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('clip_count', ?)",
             (str(len(clips)),),
         )
+        con.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('project_name', ?)",
+            (project_name,),
+        )
         con.commit()
     finally:
         con.close()
 
 
 def get_status(db_path: str | Path) -> dict[str, Any]:
-    """Return index status dict: {state, clip_count, built_at}.
+    """Return index status dict: {state, clip_count, built_at, project_name}.
 
     state is 'ready' if the index exists and has clips, otherwise 'empty'.
     built_at is an ISO string or None.
+    project_name is a string or None.
     """
     path = Path(db_path)
     if not path.exists():
-        return {"state": "empty", "clip_count": 0, "built_at": None}
+        return {"state": "empty", "clip_count": 0, "built_at": None, "project_name": None}
 
     try:
         con = sqlite3.connect(str(path))
@@ -192,18 +197,23 @@ def get_status(db_path: str | Path) -> dict[str, Any]:
             clip_count_row = con.execute(
                 "SELECT value FROM meta WHERE key='clip_count'"
             ).fetchone()
+            project_name_row = con.execute(
+                "SELECT value FROM meta WHERE key='project_name'"
+            ).fetchone()
             clip_count = int(clip_count_row[0]) if clip_count_row else 0
+            project_name = project_name_row[0] if project_name_row else None
             if clip_count > 0:
                 return {
                     "state": "ready",
                     "clip_count": clip_count,
                     "built_at": built_at[0] if built_at else None,
+                    "project_name": project_name,
                 }
-            return {"state": "empty", "clip_count": 0, "built_at": None}
+            return {"state": "empty", "clip_count": 0, "built_at": None, "project_name": None}
         finally:
             con.close()
     except Exception:
-        return {"state": "empty", "clip_count": 0, "built_at": None}
+        return {"state": "empty", "clip_count": 0, "built_at": None, "project_name": None}
 
 
 # ---------------------------------------------------------------------------

@@ -552,6 +552,20 @@ def get_all_project_keywords(resolve: Any) -> list[str]:
     return sorted(result, key=str.casefold)
 
 
+def get_project_name(resolve: Any) -> str:
+    """Return the current project name, or empty string on failure."""
+    try:
+        pm = resolve.GetProjectManager()
+        if pm is None:
+            return ""
+        project = pm.GetCurrentProject()
+        if project is None:
+            return ""
+        return project.GetName() or ""
+    except Exception:
+        return ""
+
+
 def export_metadata(resolve: Any, csv_path: str) -> bool:
     """Call media_pool.ExportMetadata(csv_path) and return True on success."""
     try:

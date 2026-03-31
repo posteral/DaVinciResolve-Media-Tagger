@@ -604,6 +604,7 @@ def search_build():
             csv_path = f.name
 
         try:
+            project_name = resolve_api.get_project_name(resolve)
             ok = resolve_api.export_metadata(resolve, csv_path)
             if not ok:
                 return jsonify({"error": "ExportMetadata failed"}), 500
@@ -614,8 +615,8 @@ def search_build():
             except OSError:
                 pass
 
-    search_index.build_index(_SEARCH_DB_PATH, clips)
-    print(f"[search] index built: {len(clips)} clips")
+    search_index.build_index(_SEARCH_DB_PATH, clips, project_name=project_name)
+    print(f"[search] index built: {len(clips)} clips from {project_name!r}")
     return jsonify(search_index.get_status(_SEARCH_DB_PATH))
 
 

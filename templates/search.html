@@ -192,7 +192,8 @@
       const btn = document.getElementById('build-btn');
       if (data.state === 'ready') {
         const d = data.built_at ? new Date(data.built_at).toLocaleString() : '?';
-        el.textContent = `${data.clip_count.toLocaleString()} clips indexed · built ${d}`;
+        const proj = data.project_name ? `${data.project_name} · ` : '';
+        el.textContent = `${proj}${data.clip_count.toLocaleString()} clips · built ${d}`;
       } else {
         el.textContent = 'Index not built';
       }
@@ -214,7 +215,8 @@
         el.textContent = 'Error: ' + data.error;
       } else {
         const d = data.built_at ? new Date(data.built_at).toLocaleString() : '?';
-        el.textContent = `${data.clip_count.toLocaleString()} clips indexed · built ${d}`;
+        const proj = data.project_name ? `${data.project_name} · ` : '';
+        el.textContent = `${proj}${data.clip_count.toLocaleString()} clips · built ${d}`;
       }
     } catch (_) {
       el.textContent = 'Build failed';
