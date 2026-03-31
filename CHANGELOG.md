@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-03-31
+
+### Added
+
+- **Shot Finder — histogram date filter.** Clicking a bar in the date histogram
+  restricts search results to clips within that bucket's date range. The active
+  bar is highlighted bright green. Clicking the active bar again clears the
+  filter. Bucket-to-date-range expansion handles day, week, and month bucket
+  sizes correctly.
+- **Shot Finder — `date_from` / `date_to` filter params.** `search_clips()` in
+  `search_index.py` now accepts optional `date_from` and `date_to` ISO string
+  params. When set, an `AND clips.date_iso >= ? AND clips.date_iso <= ?` clause
+  is appended to both the result query and the total count query.
+  `GET /search/api/query` exposes these as URL params.
+
+### Fixed
+
+- **Shot Finder — wrong thumbnail for clips with duplicate filenames.** The
+  proxy path map was keyed by `file_name` alone, so two clips named `C0040.MP4`
+  in different folders would clobber each other and show the wrong thumbnail.
+  `collect_proxy_paths` and `_collect_proxy_paths_recursive` in `resolve_api.py`
+  now key by `(file_name, clip_dir)`. The `search_build` route in `app.py`
+  matches using the same compound key (with trailing slash normalisation).
+  Requires an index rebuild to take effect.
+
+### Tests
+
+- 27 new tests:
+  - `TestBuildFtsQuery` (10) — covers single word, multi-word, quoted phrases,
+    bare exclusions, quoted exclusions, and complex queries.
+  - `TestSearchClipsDateFilter` (11) — `date_from`, `date_to`, combined range,
+    boundary inclusivity, no-date clips excluded by filter, zero-match range,
+    combined with `limit`.
+  - `TestGetAllKeywords` (5) — missing DB, empty index, distinct dedup, case-
+    insensitive sort, clips with no keywords.
+  - `TestSearchBuildProxyAttachment` (2) — duplicate filename gets correct proxy
+    per `clip_dir`; clip without proxy gets `None`.
+- Total: 377 tests.
+
 ## [0.22.1] - 2026-03-29
 
 ### Fixed

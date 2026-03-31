@@ -253,19 +253,7 @@ def search_histogram(
     if not q:
         return {"buckets": [], "bucket_size": "month"}
 
-    tokens = [m[1] if m[1] else m[2] for m in re.finditer(r'"([^"]+)"|(\S+)', q)]
-    parts = []
-    for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):
-        if m.group(2) is not None:
-            text, excluded = m.group(2), m.group(1) == '-'
-        else:
-            raw = m.group(4)
-            excluded = m.group(3) == '-' or raw.startswith('-')
-            text = raw.lstrip('-')
-        if not text:
-            continue
-        parts.append(f'NOT "{text}"*' if excluded else f'"{text}"*')
-    fts_query = " ".join(parts)
+    fts_query = _build_fts_query(q)
 
     try:
         con = sqlite3.connect(str(path))
@@ -345,6 +333,30 @@ def get_all_keywords(db_path: str | Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _build_fts_query(q: str) -> str:
+    """Convert a user query string to an FTS5 query.
+
+    Handles quoted phrases, bare words, and -exclusions.
+    e.g. 'italy "rolling hills" -Marc' → '"italy"* "rolling hills"* NOT "Marc"*'
+    """
+    parts = []
+    for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):
+        if m.group(2) is not None:
+            text, excluded = m.group(2), m.group(1) == '-'
+        else:
+            raw = m.group(4)
+            excluded = m.group(3) == '-' or raw.startswith('-')
+            text = raw.lstrip('-')
+        if not text:
+            continue
+        parts.append(f'NOT "{text}"*' if excluded else f'"{text}"*')
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # M2 — Search query
 # ---------------------------------------------------------------------------
 
@@ -353,6 +365,8 @@ def search_clips(
     query: str,
     limit: int = 50,
     offset: int = 0,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> dict[str, Any]:
     """Full-text keyword search against the clips_fts index.
 
@@ -383,23 +397,17 @@ def search_clips(
     if not q:
         return {"total": 0, "results": []}
 
-    # Build FTS5 query: parse quoted phrases, bare words, and -exclusions.
-    # Each inclusion becomes a prefix query; exclusions use NOT.
-    # e.g. 'italy "rolling hills" -Marc' →
-    #      '"italy"* "rolling hills"* NOT "Marc"*'
-    parts = []
-    for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):
-        if m.group(2) is not None:
-            text, excluded = m.group(2), m.group(1) == '-'
-        else:
-            raw = m.group(4)
-            excluded = m.group(3) == '-' or raw.startswith('-')
-            text = raw.lstrip('-')
-        if not text:
-            continue
-        clause = f'NOT "{text}"*' if excluded else f'"{text}"*'
-        parts.append(clause)
-    fts_query = " ".join(parts)
+    fts_query = _build_fts_query(q)
+
+    # Optional date range filter.
+    date_clause = ""
+    date_params: list[str] = []
+    if date_from:
+        date_clause += " AND clips.date_iso >= ?"
+        date_params.append(date_from)
+    if date_to:
+        date_clause += " AND clips.date_iso <= ?"
+        date_params.append(date_to)
 
     try:
         con = sqlite3.connect(str(path))
@@ -408,8 +416,8 @@ def search_clips(
             total_row = con.execute(
                 "SELECT COUNT(*) FROM clips_fts"
                 " JOIN clips ON clips.id = clips_fts.rowid"
-                " WHERE clips_fts MATCH ?",
-                (fts_query,),
+                f" WHERE clips_fts MATCH ?{date_clause}",
+                [fts_query] + date_params,
             ).fetchone()
             total = total_row[0] if total_row else 0
 
@@ -418,10 +426,10 @@ def search_clips(
                 "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take, clips.proxy_path"
                 " FROM clips_fts"
                 " JOIN clips ON clips.id = clips_fts.rowid"
-                " WHERE clips_fts MATCH ?"
+                f" WHERE clips_fts MATCH ?{date_clause}"
                 " ORDER BY clips.good_take DESC, clips.date_iso DESC, clips.file_name"
                 " LIMIT ? OFFSET ?",
-                (fts_query, limit, offset),
+                [fts_query] + date_params + [limit, offset],
             ).fetchall()
 
             results = []

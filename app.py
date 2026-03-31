@@ -647,8 +647,11 @@ def search_build():
                 pass
 
     # Attach proxy paths to clip dicts.
+    # Key is (file_name, clip_dir) to correctly disambiguate clips that share a
+    # filename but live in different folders (e.g. two C0040.MP4 from different shoots).
     for c in clips:
-        c["proxy_path"] = proxy_map.get(c["file_name"])
+        key = (c["file_name"], c["clip_dir"].rstrip("/\\"))
+        c["proxy_path"] = proxy_map.get(key)
 
     search_index.build_index(_SEARCH_DB_PATH, clips, project_name=project_name)
     print(f"[search] index built: {len(clips)} clips from {project_name!r}")
@@ -689,12 +692,17 @@ def search_keywords():
 @app.route("/search/api/query")
 def search_query():
     q = request.args.get("q", "").strip()
+    date_from = request.args.get("date_from", "").strip() or None
+    date_to = request.args.get("date_to", "").strip() or None
     try:
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = int(request.args.get("offset", 0))
     except ValueError:
         return jsonify({"error": "invalid limit/offset"}), 400
-    return jsonify(search_index.search_clips(_SEARCH_DB_PATH, q, limit, offset))
+    return jsonify(search_index.search_clips(
+        _SEARCH_DB_PATH, q, limit, offset,
+        date_from=date_from, date_to=date_to,
+    ))
 
 
 if __name__ == "__main__":

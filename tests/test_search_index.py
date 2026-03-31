@@ -588,6 +588,238 @@ class TestSearchClips(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _build_fts_query
+# ---------------------------------------------------------------------------
+
+class TestBuildFtsQuery(unittest.TestCase):
+    def test_single_word(self):
+        self.assertEqual(search_index._build_fts_query("sunset"), '"sunset"*')
+
+    def test_two_words_joined_with_space(self):
+        result = search_index._build_fts_query("sunset beach")
+        self.assertEqual(result, '"sunset"* "beach"*')
+
+    def test_quoted_phrase_preserved(self):
+        result = search_index._build_fts_query('"rolling hills"')
+        self.assertEqual(result, '"rolling hills"*')
+
+    def test_quoted_phrase_mixed_with_bare_word(self):
+        result = search_index._build_fts_query('France "rolling hills"')
+        self.assertEqual(result, '"France"* "rolling hills"*')
+
+    def test_exclusion_bare_word(self):
+        result = search_index._build_fts_query("-Marc")
+        self.assertEqual(result, 'NOT "Marc"*')
+
+    def test_exclusion_with_dash_prefix(self):
+        result = search_index._build_fts_query("sunset -indoor")
+        self.assertEqual(result, '"sunset"* NOT "indoor"*')
+
+    def test_exclusion_quoted_phrase(self):
+        result = search_index._build_fts_query('-"rolling hills"')
+        self.assertEqual(result, 'NOT "rolling hills"*')
+
+    def test_empty_string_returns_empty(self):
+        self.assertEqual(search_index._build_fts_query(""), "")
+
+    def test_whitespace_only_returns_empty(self):
+        self.assertEqual(search_index._build_fts_query("   ").strip(), "")
+
+    def test_complex_query(self):
+        result = search_index._build_fts_query('Italy "rolling hills" -Marc')
+        self.assertEqual(result, '"Italy"* "rolling hills"* NOT "Marc"*')
+
+
+# ---------------------------------------------------------------------------
+# search_clips — date filter
+# ---------------------------------------------------------------------------
+
+_DATE_FILTER_CLIPS = [
+    {
+        "file_name": "clip_jan.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["sunset"],
+        "date": datetime(2025, 1, 15),
+        "duration_tc": "",
+        "good_take": False,
+    },
+    {
+        "file_name": "clip_mar.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["sunset"],
+        "date": datetime(2025, 3, 10),
+        "duration_tc": "",
+        "good_take": False,
+    },
+    {
+        "file_name": "clip_jun.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["sunset"],
+        "date": datetime(2025, 6, 20),
+        "duration_tc": "",
+        "good_take": False,
+    },
+    {
+        "file_name": "clip_nodate.mp4",
+        "clip_dir": "/vol/a",
+        "keywords": ["sunset"],
+        "date": None,
+        "duration_tc": "",
+        "good_take": False,
+    },
+]
+
+
+class TestSearchClipsDateFilter(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+        search_index.build_index(self.db_path, _DATE_FILTER_CLIPS)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    def test_no_filter_returns_all_clips_with_keywords(self):
+        result = search_index.search_clips(self.db_path, "sunset")
+        # clip_nodate has no date but still has keywords and should match
+        self.assertEqual(result["total"], 4)
+
+    def test_date_from_excludes_earlier_clips(self):
+        result = search_index.search_clips(
+            self.db_path, "sunset", date_from="2025-02-01"
+        )
+        names = [r["file_name"] for r in result["results"]]
+        self.assertNotIn("clip_jan.mp4", names)
+        self.assertIn("clip_mar.mp4", names)
+        self.assertIn("clip_jun.mp4", names)
+
+    def test_date_to_excludes_later_clips(self):
+        result = search_index.search_clips(
+            self.db_path, "sunset", date_to="2025-04-30"
+        )
+        names = [r["file_name"] for r in result["results"]]
+        self.assertIn("clip_jan.mp4", names)
+        self.assertIn("clip_mar.mp4", names)
+        self.assertNotIn("clip_jun.mp4", names)
+
+    def test_date_from_and_date_to_narrow_to_single_clip(self):
+        result = search_index.search_clips(
+            self.db_path, "sunset",
+            date_from="2025-03-01", date_to="2025-03-31"
+        )
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["results"][0]["file_name"], "clip_mar.mp4")
+
+    def test_date_filter_excludes_clips_with_no_date(self):
+        # clip_nodate has no date — date filter should exclude it
+        result = search_index.search_clips(
+            self.db_path, "sunset", date_from="2025-01-01"
+        )
+        names = [r["file_name"] for r in result["results"]]
+        self.assertNotIn("clip_nodate.mp4", names)
+
+    def test_date_range_with_no_matches_returns_zero(self):
+        result = search_index.search_clips(
+            self.db_path, "sunset",
+            date_from="2024-01-01", date_to="2024-12-31"
+        )
+        self.assertEqual(result["total"], 0)
+        self.assertEqual(result["results"], [])
+
+    def test_date_from_inclusive(self):
+        # Exact boundary: clip_jan is 2025-01-15; date_from=2025-01-15 should include it
+        result = search_index.search_clips(
+            self.db_path, "sunset", date_from="2025-01-15"
+        )
+        names = [r["file_name"] for r in result["results"]]
+        self.assertIn("clip_jan.mp4", names)
+
+    def test_date_to_includes_same_day(self):
+        # clip_jun is stored as "2025-06-20T00:00:00"; date_to="2025-06-20T23:59:59"
+        # must include it (string comparison works because ISO sorts correctly).
+        result = search_index.search_clips(
+            self.db_path, "sunset", date_to="2025-06-20T23:59:59"
+        )
+        names = [r["file_name"] for r in result["results"]]
+        self.assertIn("clip_jun.mp4", names)
+
+    def test_total_reflects_date_filter(self):
+        # Only 2 clips have dates within Feb–Apr 2025
+        result = search_index.search_clips(
+            self.db_path, "sunset",
+            date_from="2025-02-01", date_to="2025-04-30"
+        )
+        self.assertEqual(result["total"], 1)
+
+    def test_limit_and_date_filter_combined(self):
+        # date_from excludes Jan, leaving mar + jun; limit=1 should return 1
+        result = search_index.search_clips(
+            self.db_path, "sunset", limit=1, date_from="2025-02-01"
+        )
+        self.assertEqual(len(result["results"]), 1)
+        # total still reflects all matches within filter (2)
+        self.assertEqual(result["total"], 2)
+
+
+# ---------------------------------------------------------------------------
+# get_all_keywords
+# ---------------------------------------------------------------------------
+
+class TestGetAllKeywords(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.db_path = Path(self._tmp.name)
+
+    def tearDown(self):
+        self.db_path.unlink(missing_ok=True)
+
+    def test_returns_empty_when_db_missing(self):
+        result = search_index.get_all_keywords("/nonexistent/path.db")
+        self.assertEqual(result, [])
+
+    def test_returns_empty_when_no_clips(self):
+        search_index.build_index(self.db_path, [])
+        result = search_index.get_all_keywords(self.db_path)
+        self.assertEqual(result, [])
+
+    def test_returns_all_distinct_keywords(self):
+        clips = [
+            {"file_name": "a.mp4", "clip_dir": "/v", "keywords": ["sunset", "beach"],
+             "date": None, "duration_tc": "", "good_take": False},
+            {"file_name": "b.mp4", "clip_dir": "/v", "keywords": ["ocean", "beach"],
+             "date": None, "duration_tc": "", "good_take": False},
+        ]
+        search_index.build_index(self.db_path, clips)
+        result = search_index.get_all_keywords(self.db_path)
+        self.assertIn("sunset", result)
+        self.assertIn("beach", result)
+        self.assertIn("ocean", result)
+        self.assertEqual(len(result), 3)  # beach appears in both but listed once
+
+    def test_keywords_sorted_case_insensitively(self):
+        clips = [
+            {"file_name": "a.mp4", "clip_dir": "/v", "keywords": ["Zebra", "apple", "Mango"],
+             "date": None, "duration_tc": "", "good_take": False},
+        ]
+        search_index.build_index(self.db_path, clips)
+        result = search_index.get_all_keywords(self.db_path)
+        self.assertEqual(result, sorted(result, key=str.casefold))
+
+    def test_clips_with_no_keywords_dont_pollute_result(self):
+        clips = [
+            {"file_name": "a.mp4", "clip_dir": "/v", "keywords": ["sunset"],
+             "date": None, "duration_tc": "", "good_take": False},
+            {"file_name": "b.mp4", "clip_dir": "/v", "keywords": [],
+             "date": None, "duration_tc": "", "good_take": False},
+        ]
+        search_index.build_index(self.db_path, clips)
+        result = search_index.get_all_keywords(self.db_path)
+        self.assertEqual(result, ["sunset"])
+
+
+# ---------------------------------------------------------------------------
 # Histogram
 # ---------------------------------------------------------------------------
 

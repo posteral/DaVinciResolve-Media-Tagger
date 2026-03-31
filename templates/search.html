@@ -226,11 +226,13 @@
       min-width: 2px;
       background: #3a5a3a;
       border-radius: 2px 2px 0 0;
-      cursor: default;
+      cursor: pointer;
       position: relative;
       transition: background 0.1s;
     }
     .hist-bar:hover { background: #5a8a5a; }
+    .hist-bar.active { background: #7acf7a; }
+    .hist-bar.active:hover { background: #9adf9a; }
     .hist-tooltip {
       display: none;
       position: fixed;
@@ -311,6 +313,12 @@
   let _currentOffset = 0;
   let _total = 0;
   const LIMIT = 50;
+
+  // Date filter state (set by clicking a histogram bar).
+  let _currentDateFrom = null;
+  let _currentDateTo   = null;
+  let _currentBucketKey = null;   // the bucket.date key of the active bar
+  let _currentBucketSize = null;  // 'day' | 'week' | 'month'
 
   // ── Index status ──────────────────────────────────────────────────────────
 
@@ -520,23 +528,34 @@
     setTimeout(hideDropdown, 150);
   });
 
-  async function runSearch(q, append = false) {
+  async function runSearch(q, append = false, keepDateFilter = false) {
     if (!q) {
       document.getElementById('results').innerHTML = '';
       document.getElementById('result-count').textContent = '';
       document.getElementById('load-more').style.display = 'none';
       document.getElementById('histogram-wrap').style.display = 'none';
+      _currentDateFrom = null;
+      _currentDateTo   = null;
+      _currentBucketKey = null;
       return;
     }
     if (!append) {
       _currentQuery = q;
       _currentOffset = 0;
       document.getElementById('results').innerHTML = '';
+      // A fresh query (not from a bar click) clears the date filter.
+      if (!keepDateFilter) {
+        _currentDateFrom = null;
+        _currentDateTo   = null;
+        _currentBucketKey = null;
+      }
     }
 
     document.getElementById('search-spinner').style.display = 'inline';
     try {
       const params = new URLSearchParams({ q, limit: LIMIT, offset: _currentOffset });
+      if (_currentDateFrom) params.set('date_from', _currentDateFrom);
+      if (_currentDateTo)   params.set('date_to',   _currentDateTo);
       const [res, histRes] = await Promise.all([
         fetch('/search/api/query?' + params),
         append ? Promise.resolve(null) : fetch('/search/api/histogram?' + new URLSearchParams({ q })),
@@ -712,21 +731,50 @@
   _histTip.className = 'hist-tooltip';
   document.body.appendChild(_histTip);
 
+  // Expand a histogram bucket key to an ISO [date_from, date_to] pair.
+  function bucketToDateRange(key, bucketSize) {
+    if (bucketSize === 'day') {
+      // key = "YYYY-MM-DD"
+      return [key, key];
+    } else if (bucketSize === 'week') {
+      // key = "YYYY-Www"  (e.g. "2022-W22")
+      const [yearStr, weekStr] = key.split('-W');
+      const year = parseInt(yearStr, 10);
+      const week = parseInt(weekStr, 10);
+      // ISO week → Monday of that week via Jan 4 anchor.
+      const jan4 = new Date(year, 0, 4);
+      const jan4Day = jan4.getDay() || 7; // 1=Mon…7=Sun
+      const monday = new Date(jan4.getTime() + (week - 1) * 7 * 86400000 - (jan4Day - 1) * 86400000);
+      const sunday = new Date(monday.getTime() + 6 * 86400000);
+      const fmt = d => d.toISOString().slice(0, 10);
+      return [fmt(monday), fmt(sunday)];
+    } else {
+      // key = "YYYY-MM"
+      const [year, month] = key.split('-').map(Number);
+      const from = `${key}-01`;
+      // Last day of month: day 0 of next month.
+      const lastDay = new Date(year, month, 0).getDate();
+      const to = `${key}-${String(lastDay).padStart(2, '0')}`;
+      return [from, to];
+    }
+  }
+
   function renderHistogram(data) {
     const wrap = document.getElementById('histogram-wrap');
     const container = document.getElementById('histogram');
     const buckets = data.buckets || [];
     if (!buckets.length) { wrap.style.display = 'none'; return; }
 
+    _currentBucketSize = data.bucket_size || 'month';
     const maxCount = Math.max(...buckets.map(b => b.count));
     container.innerHTML = '';
 
     buckets.forEach(b => {
       const bar = document.createElement('div');
-      bar.className = 'hist-bar';
+      bar.className = 'hist-bar' + (b.date === _currentBucketKey ? ' active' : '');
       bar.style.height = Math.max(2, Math.round((b.count / maxCount) * 56)) + 'px';
 
-      bar.addEventListener('mouseenter', e => {
+      bar.addEventListener('mouseenter', () => {
         _histTip.textContent = `${b.date}  ·  ${b.count} clip${b.count === 1 ? '' : 's'}`;
         _histTip.style.display = 'block';
       });
@@ -741,6 +789,20 @@
       });
       bar.addEventListener('mouseleave', () => {
         _histTip.style.display = 'none';
+      });
+
+      bar.addEventListener('click', () => {
+        _histTip.style.display = 'none';
+        if (_currentBucketKey === b.date) {
+          // Click active bar → clear date filter.
+          _currentDateFrom  = null;
+          _currentDateTo    = null;
+          _currentBucketKey = null;
+        } else {
+          _currentBucketKey = b.date;
+          [_currentDateFrom, _currentDateTo] = bucketToDateRange(b.date, _currentBucketSize);
+        }
+        runSearch(_currentQuery, false, true);
       });
 
       container.appendChild(bar);

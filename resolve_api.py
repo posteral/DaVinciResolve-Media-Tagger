@@ -605,19 +605,22 @@ def _find_clip_by_name_and_dir(
 
 
 def _collect_proxy_paths_recursive(folder: Any, result: dict) -> None:
-    """Walk folder tree, populating result[file_name] = proxy_path."""
+    """Walk folder tree, populating result[(file_name, clip_dir)] = proxy_path."""
     for clip in _as_sequence(folder.GetClipList()):
         proxy = clip.GetClipProperty("Proxy Media Path") or ""
         if proxy:
-            result[clip.GetName()] = proxy
+            file_path = clip.GetClipProperty("File Path") or ""
+            clip_dir = os.path.dirname(file_path).rstrip("/\\") if file_path else ""
+            result[(clip.GetName(), clip_dir)] = proxy
     for subfolder in _as_sequence(folder.GetSubFolderList()):
         _collect_proxy_paths_recursive(subfolder, result)
 
 
-def collect_proxy_paths(resolve: Any) -> dict[str, str]:
-    """Return {file_name: proxy_path} for all clips in the project that have a proxy.
+def collect_proxy_paths(resolve: Any) -> dict[tuple, str]:
+    """Return {(file_name, clip_dir): proxy_path} for all clips that have a proxy.
 
-    Single tree walk — called once during index build.
+    Keyed by (file_name, clip_dir) so clips with the same filename in different
+    folders are matched correctly. Single tree walk — called once during index build.
     Returns empty dict on failure.
     """
     try:
@@ -633,7 +636,7 @@ def collect_proxy_paths(resolve: Any) -> dict[str, str]:
         root = media_pool.GetRootFolder()
         if root is None:
             return {}
-        result: dict[str, str] = {}
+        result: dict[tuple, str] = {}
         _collect_proxy_paths_recursive(root, result)
         print(f"[search] collected {len(result)} proxy paths")
         return result
