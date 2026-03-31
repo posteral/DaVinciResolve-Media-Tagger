@@ -333,20 +333,21 @@
     if (!fragment || fragment.length < 1) { hideDropdown(); return; }
 
     const fragLower = fragment.toLowerCase();
-    // Already-used tokens (to avoid suggesting what's already in the query).
-    const usedLower = new Set(parseQueryTokens(val).map(t => t.text.toLowerCase()));
+    // Exclude already-completed tokens (all but the one currently being typed).
+    const allTokens = parseQueryTokens(val).map(t => t.text.toLowerCase());
+    const completedLower = new Set(allTokens.slice(0, -1));
 
     const matches = _allKeywords.filter(kw =>
-      kw.toLowerCase().startsWith(fragLower) && !usedLower.has(kw.toLowerCase())
+      kw.toLowerCase().startsWith(fragLower) && !completedLower.has(kw.toLowerCase())
     ).slice(0, 20);
 
     if (!matches.length) { hideDropdown(); return; }
 
-    _acIndex = -1;
+    _acIndex = 0;
     dropdown.innerHTML = '';
     matches.forEach((kw, i) => {
       const item = document.createElement('div');
-      item.className = 'ac-item';
+      item.className = 'ac-item' + (i === 0 ? ' active' : '');
       item.dataset.index = i;
       // Bold the matching prefix.
       const highlighted = `<span class="ac-match">${kw.slice(0, fragment.length)}</span>${kw.slice(fragment.length)}`;
@@ -405,11 +406,14 @@
           e.preventDefault();
           const active = dropdown.querySelector('.ac-item.active');
           if (active) {
-            // Extract plain text (strip HTML).
             const kw = _allKeywords.find(k =>
               k.toLowerCase() === (active.textContent || '').toLowerCase()
             ) || active.textContent;
             commitAutocomplete(kw);
+            if (e.key === 'Enter') {
+              clearTimeout(_debounceTimer);
+              runSearch(document.getElementById('search-input').value.trim());
+            }
             return;
           }
         }
