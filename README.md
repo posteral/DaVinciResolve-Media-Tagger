@@ -28,6 +28,22 @@ Open the app in a browser while Resolve is running. It shows the current clip's 
 
 ---
 
+## Shot Finder (`/search`)
+
+A second page on the same server for browsing the full archive by keyword. Build a persistent index once, then search across 20k+ clips instantly.
+
+**Features:**
+
+- **Full-text keyword search** — type `Italy sunset` to find clips tagged with both; supports quoted phrases (`"rolling hills"`) and exclusions (`-indoor`)
+- **Additive keyword filtering** — click any keyword tag in results to add it to the search; click again to exclude (red); click again to remove
+- **Autocomplete** — dropdown suggests keywords from the index as you type; Tab completes, Enter searches
+- **Good Take badge** — clips marked Good Take in Resolve are highlighted and sorted first
+- **Proxy thumbnails** — lazy-loaded midpoint frame for each result card
+- **Jump to Resolve** — click any result row to navigate Resolve's media pool directly to that clip
+- **Rebuild index** — one button exports metadata from the current project and rebuilds the SQLite/FTS5 index (~3s for 23k clips)
+
+---
+
 ## Requirements
 
 - Python 3.10+
@@ -131,6 +147,17 @@ All ffmpeg operations (filmstrip, AI suggestion frames, face detection) use the 
 | `GET` | `/api/profiler/report` | Live session performance stats |
 | `POST` | `/api/profiler/dump` | Write profiling report to a JSON file |
 
+### Shot Finder (`/search`)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/search` | Shot Finder UI |
+| `GET` | `/search/api/status` | Index state, clip count, build time, project name |
+| `POST` | `/search/api/build` | Rebuild index from current Resolve project |
+| `GET` | `/search/api/query?q=&limit=&offset=` | FTS5 keyword search with pagination |
+| `GET` | `/search/api/keywords` | All distinct keywords in the index (for autocomplete) |
+| `POST` | `/search/api/select` | Navigate Resolve media pool to a clip |
+
 ---
 
 ## Fixing existing metadata (keyword cleanup)
@@ -170,7 +197,7 @@ The original file is never modified.
 python3 -m unittest discover -s tests -v
 ```
 
-308 tests, all passing.
+340 tests, all passing.
 
 ---
 
