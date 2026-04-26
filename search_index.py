@@ -292,7 +292,7 @@ def search_histogram(
         key_fn = lambda d: d.strftime("%Y-%m-%d")
     elif span_days < 730:
         bucket_size = "week"
-        key_fn = lambda d: d.strftime("%Y-W%W")
+        key_fn = lambda d: d.strftime("%G-W%V")
     else:
         bucket_size = "month"
         key_fn = lambda d: d.strftime("%Y-%m")
