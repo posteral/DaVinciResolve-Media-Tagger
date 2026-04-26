@@ -44,7 +44,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
         keywords    : list[str]     — parsed keyword list (may be empty)
         date        : datetime|None — Date Modified, or None if unparseable
         duration_tc : str           — Duration TC string (e.g. "00:00:11:26")
-        good_take   : bool          — True if Good Take column is "1"
+        good_take   : bool          — True if Tag column is "1" (Good Take in Resolve)
 
     Rows without a Clip Directory are skipped (they are bin/folder entries).
     """
@@ -67,7 +67,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
                 "keywords": _parse_keywords(row.get("Keywords") or ""),
                 "date": _parse_date(row.get("Date Modified") or ""),
                 "duration_tc": (row.get("Duration TC") or "").strip(),
-                "good_take": (row.get("Good Take") or "").strip() == "1",
+                "good_take": (row.get("Tag") or "").strip() == "1",
             })
 
     return clips
@@ -91,7 +91,7 @@ def parse_export_csv_text(text: str) -> list[dict[str, Any]]:
             "keywords": _parse_keywords(row.get("Keywords") or ""),
             "date": _parse_date(row.get("Date Modified") or ""),
             "duration_tc": (row.get("Duration TC") or "").strip(),
-            "good_take": (row.get("Good Take") or "").strip() == "1",
+            "good_take": (row.get("Tag") or "").strip() == "1",
         })
     return clips
 
@@ -403,10 +403,10 @@ def search_clips(
     date_clause = ""
     date_params: list[str] = []
     if date_from:
-        date_clause += " AND clips.date_iso >= ?"
+        date_clause += " AND substr(clips.date_iso, 1, 10) >= ?"
         date_params.append(date_from)
     if date_to:
-        date_clause += " AND clips.date_iso <= ?"
+        date_clause += " AND substr(clips.date_iso, 1, 10) <= ?"
         date_params.append(date_to)
 
     try:
