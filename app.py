@@ -678,6 +678,19 @@ def search_select():
     return jsonify(result)
 
 
+@app.route("/search/api/show_in_finder", methods=["POST"])
+def search_show_in_finder():
+    import subprocess, os
+    data = request.get_json(silent=True) or {}
+    file_name = (data.get("file_name") or "").strip()
+    clip_dir = (data.get("clip_dir") or "").strip()
+    if not file_name or not clip_dir:
+        return jsonify({"ok": False, "error": "file_name and clip_dir required"}), 400
+    full_path = os.path.join(clip_dir, file_name)
+    subprocess.Popen(["open", "-R", full_path])
+    return jsonify({"ok": True})
+
+
 @app.route("/search/api/histogram")
 def search_histogram():
     q = request.args.get("q", "").strip()

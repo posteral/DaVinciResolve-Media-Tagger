@@ -123,6 +123,31 @@
     .result-row.selecting { opacity: 0.6; }
     .result-row.selected { border-color: #4a7a4a; background: #1e2a1e; }
     .result-row.select-error { border-color: #7a3a3a; background: #2a1e1e; }
+
+    #clip-context-menu {
+      position: fixed;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 4px 0;
+      z-index: 9999;
+      min-width: 180px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      display: none;
+    }
+    #clip-context-menu.visible { display: block; }
+    #clip-context-menu button {
+      display: block;
+      width: 100%;
+      background: none;
+      border: none;
+      color: #ddd;
+      font-size: 0.85rem;
+      text-align: left;
+      padding: 7px 14px;
+      cursor: pointer;
+    }
+    #clip-context-menu button:hover { background: #3a3a3a; }
     .select-status {
       font-size: 0.7rem;
       margin-top: 4px;
@@ -279,6 +304,10 @@
   </style>
 </head>
 <body>
+
+<div id="clip-context-menu">
+  <button id="ctx-show-in-finder">Show in Finder</button>
+</div>
 
 <div class="header">
   <h1>Shot Finder</h1>
@@ -677,6 +706,9 @@
         selectClipInResolve(clip, row);
       });
 
+      // Right-click → context menu
+      row.addEventListener('contextmenu', e => showContextMenu(e, clip));
+
       container.appendChild(row);
     });
   }
@@ -876,6 +908,41 @@
       }
     });
   }, { rootMargin: '100px' });
+
+  // ── Context menu ─────────────────────────────────────────────────────────
+  const _ctxMenu = document.getElementById('clip-context-menu');
+  let _ctxClip = null;
+
+  function showContextMenu(e, clip) {
+    e.preventDefault();
+    e.stopPropagation();
+    _ctxClip = clip;
+    _ctxMenu.style.left = e.clientX + 'px';
+    _ctxMenu.style.top  = e.clientY + 'px';
+    _ctxMenu.classList.add('visible');
+  }
+
+  function hideContextMenu() {
+    _ctxMenu.classList.remove('visible');
+    _ctxClip = null;
+  }
+
+  document.getElementById('ctx-show-in-finder').addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!_ctxClip) return;
+    const clip = _ctxClip;
+    hideContextMenu();
+    await fetch('/search/api/show_in_finder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_name: clip.file_name, clip_dir: clip.clip_dir }),
+    });
+  });
+
+  document.addEventListener('click', e => {
+    if (!_ctxMenu.contains(e.target)) hideContextMenu();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hideContextMenu(); });
 
   // ── Init ──────────────────────────────────────────────────────────────────
   loadStatus();

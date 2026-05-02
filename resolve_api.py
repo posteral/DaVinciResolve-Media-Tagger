@@ -671,10 +671,19 @@ def select_clip_in_resolve(resolve: Any, file_name: str, clip_dir: str) -> dict:
         if clip is None:
             return {"ok": False, "error": f"clip not found: {file_name}"}
 
-        folder_result = media_pool.SetCurrentFolder(folder)
+        # Only call SetCurrentFolder when necessary. SetCurrentFolder resets
+        # Resolve's media pool sort order to File Name every time it is called,
+        # and the scripting API has no way to restore it. Skipping the call when
+        # the clip is already in the current folder preserves the user's sort.
+        current_folder = media_pool.GetCurrentFolder()
+        if current_folder is None or current_folder.GetName() != folder.GetName():
+            folder_result = media_pool.SetCurrentFolder(folder)
+            print(f"[select] file={file_name!r} folder={folder.GetName()!r} SetCurrentFolder={folder_result}")
+        else:
+            print(f"[select] file={file_name!r} folder={folder.GetName()!r} SetCurrentFolder=skipped (already current)")
+
         select_result = media_pool.SetSelectedClip(clip)
-        print(f"[select] file={file_name!r} folder={folder.GetName()!r} "
-              f"SetCurrentFolder={folder_result} SetSelectedClip={select_result}")
+        print(f"[select] SetSelectedClip={select_result}")
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
