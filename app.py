@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, render_template, jsonify, request, send_file
+from flask import Flask, render_template, jsonify, request, send_file, Response
 from io import BytesIO
 import base64
 import json
@@ -716,6 +716,60 @@ def search_query():
         _SEARCH_DB_PATH, q, limit, offset,
         date_from=date_from, date_to=date_to,
     ))
+
+
+@app.route("/player")
+def player_page():
+    path = request.args.get("path", "").strip()
+    if not path or not os.path.isfile(path):
+        return "File not found", 404
+    return render_template("player.html", path=path, filename=os.path.basename(path))
+
+
+@app.route("/api/clip/proxy")
+def clip_proxy():
+    """Transcode proxy to H.264/AAC fragmented MP4 via ffmpeg and stream to browser.
+
+    Accepts ?t=<seconds> to seek before transcoding, enabling scrubber support
+    without needing byte-range seeks on the original file.
+    """
+    import subprocess
+    path = request.args.get("path", "").strip()
+    if not path or not os.path.isfile(path):
+        return "File not found", 404
+
+    try:
+        start = float(request.args.get("t", 0))
+    except ValueError:
+        start = 0.0
+
+    cmd = [
+        "ffmpeg",
+        "-ss", str(start),
+        "-i", path,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+        "-f", "mp4",
+        "pipe:1",
+    ]
+
+    def generate():
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            while True:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            proc.kill()
+            proc.wait()
+
+    return Response(generate(), mimetype="video/mp4", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
 
 
 if __name__ == "__main__":

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ filename }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #000;
+    color: #ccc;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+  }
+
+  #video-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+  }
+  video { max-width: 100%; max-height: 100%; display: block; outline: none; }
+
+  #play-overlay {
+    position: absolute;
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid rgba(255,255,255,0.35);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; color: #fff;
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  #play-overlay.visible { opacity: 1; }
+
+  #controls {
+    flex-shrink: 0;
+    background: #111;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Scrub bar */
+  #scrub-wrap {
+    width: 100%; height: 16px;
+    display: flex; align-items: center;
+    cursor: pointer; position: relative;
+  }
+  #scrub-bg {
+    position: absolute; left: 0; right: 0;
+    height: 4px; background: #333; border-radius: 2px;
+  }
+  #scrub-fill {
+    position: absolute; left: 0;
+    height: 4px; background: #6a9e6a; border-radius: 2px;
+    width: 0%; pointer-events: none;
+  }
+  #scrub-wrap:hover #scrub-fill { background: #8aba8a; }
+  #scrub-thumb {
+    position: absolute;
+    width: 12px; height: 12px;
+    border-radius: 50%; background: #fff;
+    transform: translateX(-50%);
+    pointer-events: none;
+    opacity: 0; transition: opacity 0.1s;
+    left: 0%;
+  }
+  #scrub-wrap:hover #scrub-thumb,
+  #scrub-wrap.dragging #scrub-thumb { opacity: 1; }
+
+  /* Seeking overlay */
+  #seek-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    color: #aaa; font-size: 13px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  #seek-overlay.visible { opacity: 1; pointer-events: all; }
+
+  #bottom-row {
+    display: flex; align-items: center; gap: 12px;
+  }
+  #play-btn {
+    background: none; border: none; color: #ccc;
+    cursor: pointer; font-size: 16px; padding: 0; line-height: 1; flex-shrink: 0;
+  }
+  #play-btn:hover { color: #fff; }
+  #time-display { color: #888; font-size: 11px; flex-shrink: 0; min-width: 90px; }
+  #filename-display {
+    color: #555; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex: 1; text-align: right;
+  }
+</style>
+</head>
+<body>
+
+<div id="video-wrap">
+  <video id="vid" preload="metadata"></video>
+  <div id="play-overlay">▶</div>
+  <div id="seek-overlay">seeking…</div>
+</div>
+
+<div id="controls">
+  <div id="scrub-wrap">
+    <div id="scrub-bg"></div>
+    <div id="scrub-fill"></div>
+    <div id="scrub-thumb"></div>
+  </div>
+  <div id="bottom-row">
+    <button id="play-btn">▶</button>
+    <span id="time-display">0:00 / 0:00</span>
+    <span id="filename-display">{{ filename }}</span>
+  </div>
+</div>
+
+<script>
+  const PROXY_PATH = {{ path | tojson }};
+  const vid        = document.getElementById('vid');
+  const playBtn    = document.getElementById('play-btn');
+  const overlay    = document.getElementById('play-overlay');
+  const seekOvl    = document.getElementById('seek-overlay');
+  const scrubWrap  = document.getElementById('scrub-wrap');
+  const scrubFill  = document.getElementById('scrub-fill');
+  const scrubThumb = document.getElementById('scrub-thumb');
+  const timeDisp   = document.getElementById('time-display');
+
+  // We track these separately because seeking reloads the src
+  let totalDuration = null;  // set once from first loadedmetadata
+  let seekOffset    = 0;     // seconds already played before current src load
+  let wasPlaying    = true;
+
+  function proxyUrl(t) {
+    return '/api/clip/proxy?path=' + encodeURIComponent(PROXY_PATH) + '&t=' + t;
+  }
+
+  function fmt(s) {
+    if (!isFinite(s) || s < 0) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  }
+
+  function absTime() { return seekOffset + (vid.currentTime || 0); }
+
+  function updateScrub() {
+    const dur = totalDuration;
+    const pos = absTime();
+    const pct = dur ? Math.min(100, (pos / dur) * 100) : 0;
+    scrubFill.style.width  = pct + '%';
+    scrubThumb.style.left  = pct + '%';
+    timeDisp.textContent   = fmt(pos) + ' / ' + fmt(dur);
+  }
+
+  // Load the video from position t (seconds)
+  function loadFrom(t, play) {
+    seekOffset = t;
+    wasPlaying = play;
+    seekOvl.classList.add('visible');
+    vid.src = proxyUrl(t);
+    vid.load();
+  }
+
+  vid.addEventListener('loadedmetadata', () => {
+    if (totalDuration === null) totalDuration = vid.duration + seekOffset;
+    seekOvl.classList.remove('visible');
+    updateScrub();
+    if (wasPlaying) vid.play().catch(() => {});
+  });
+
+  vid.addEventListener('timeupdate', updateScrub);
+
+  // Play/pause
+  function togglePlay() { vid.paused ? vid.play() : vid.pause(); }
+  playBtn.addEventListener('click', togglePlay);
+  document.getElementById('video-wrap').addEventListener('click', e => {
+    if (e.target === seekOvl) return;
+    togglePlay();
+  });
+  vid.addEventListener('play',  () => { playBtn.textContent = '⏸'; overlay.classList.remove('visible'); });
+  vid.addEventListener('pause', () => { playBtn.textContent = '▶';  overlay.classList.add('visible'); overlay.textContent = '▶'; });
+  vid.addEventListener('ended', () => { overlay.classList.add('visible'); overlay.textContent = '↺'; });
+
+  // Scrubber — drag seeks by reloading src
+  let dragging = false;
+  let dragPct  = 0;
+
+  function pctFromEvent(e) {
+    const rect = scrubWrap.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }
+
+  function applyDragPct(pct) {
+    // Update UI immediately while dragging
+    const fakePct = pct * 100;
+    scrubFill.style.width = fakePct + '%';
+    scrubThumb.style.left = fakePct + '%';
+    if (totalDuration) timeDisp.textContent = fmt(pct * totalDuration) + ' / ' + fmt(totalDuration);
+  }
+
+  scrubWrap.addEventListener('mousedown', e => {
+    dragging = true;
+    dragPct = pctFromEvent(e);
+    scrubWrap.classList.add('dragging');
+    applyDragPct(dragPct);
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    dragPct = pctFromEvent(e);
+    applyDragPct(dragPct);
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    scrubWrap.classList.remove('dragging');
+    const t = totalDuration ? dragPct * totalDuration : 0;
+    loadFrom(t, !vid.paused || wasPlaying);
+  });
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+    if (e.code === 'ArrowLeft')  { e.preventDefault(); loadFrom(Math.max(0, absTime() - 5), !vid.paused); }
+    if (e.code === 'ArrowRight') { e.preventDefault(); loadFrom(Math.min(totalDuration || 0, absTime() + 5), !vid.paused); }
+  });
+
+  // Kick off
+  loadFrom(0, true);
+</script>
+</body>
+</html>

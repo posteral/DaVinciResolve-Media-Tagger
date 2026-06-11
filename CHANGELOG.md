@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-06-11
+
+### Added
+
+- **Proxy video player** — hovering a thumbnail in Shot Finder reveals a `▶` button; clicking it opens a popup player window (`960×560`) that streams the proxy file transcoded to H.264 via ffmpeg, making it compatible with all browsers including Chrome (which can't decode HEVC/ProRes natively).
+- `/api/clip/proxy` route — transcodes the proxy file on-the-fly using `ffmpeg -preset ultrafast` and streams a fragmented MP4; accepts `?t=<seconds>` to seek before transcoding.
+- `/player` route and `templates/player.html` — minimal dark player with custom scrubber, play/pause overlay, time display, and keyboard shortcuts (Space, ←/→ ±5s). Seeking reloads the stream from the requested position with a "seeking…" overlay.
+
 ## [0.23.2] - 2026-03-31
 
 ### Tests
