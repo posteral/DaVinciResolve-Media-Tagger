@@ -142,6 +142,20 @@
     .result-row.selecting { opacity: 0.6; }
     .result-row.selected { border-color: #4a7a4a; background: #1e2a1e; }
     .result-row.select-error { border-color: #7a3a3a; background: #2a1e1e; }
+    .result-row.neighbor-anchor { border-color: #8a7a3a; background: #2a261a; }
+    .offset-badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      color: #888;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 3px;
+      padding: 1px 5px;
+      margin-left: 6px;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .offset-badge.anchor { color: #c8a840; border-color: #6a5a28; background: #2a261a; }
 
     #clip-context-menu {
       position: fixed;
@@ -325,6 +339,7 @@
 <body>
 
 <div id="clip-context-menu">
+  <button id="ctx-find-neighbors">Find neighboring shots</button>
   <button id="ctx-show-in-finder">Show in Finder</button>
 </div>
 
@@ -989,6 +1004,129 @@
   function hideContextMenu() {
     _ctxMenu.classList.remove('visible');
     _ctxClip = null;
+  }
+
+  document.getElementById('ctx-find-neighbors').addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!_ctxClip) return;
+    const clip = _ctxClip;
+    hideContextMenu();
+    await loadNeighbors(clip);
+  });
+
+  async function loadNeighbors(anchor) {
+    _goodTakeMode = false;
+    _currentQuery = '';
+    _currentDateFrom = null;
+    _currentDateTo   = null;
+    _currentBucketKey = null;
+    document.getElementById('search-input').value = '';
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('histogram-wrap').style.display = 'none';
+    document.getElementById('search-spinner').style.display = 'inline';
+    document.getElementById('result-count').textContent = '';
+
+    try {
+      const params = new URLSearchParams({ file_name: anchor.file_name, clip_dir: anchor.clip_dir });
+      const res  = await fetch('/search/api/neighbors?' + params);
+      const data = await res.json();
+      document.getElementById('load-more').style.display = 'none';
+
+      const total = data.results ? data.results.length : 0;
+      const folderTotal = data.total || 0;
+      document.getElementById('result-count').textContent =
+        `${total} shots near ${anchor.file_name} · ${folderTotal} in folder`;
+
+      renderNeighborResults(data.results || [], anchor.file_name);
+    } catch (_) {
+      document.getElementById('result-count').textContent = 'Error loading neighbors';
+    }
+    document.getElementById('search-spinner').style.display = 'none';
+  }
+
+  function renderNeighborResults(results, anchorFileName) {
+    const container = document.getElementById('results');
+    if (!results.length) {
+      container.innerHTML = '<div class="empty-state">No neighboring clips found.</div>';
+      return;
+    }
+    results.forEach(clip => {
+      const isAnchor = clip.file_name === anchorFileName;
+      const row = document.createElement('div');
+      row.className = 'result-row' + (isAnchor ? ' neighbor-anchor' : '');
+
+      // Thumbnail
+      const thumb = document.createElement('div');
+      thumb.className = 'result-thumb' + (clip.proxy_path ? '' : ' no-proxy');
+      if (clip.proxy_path) {
+        const img = document.createElement('img');
+        img.dataset.src = '/api/clip/thumbnail?path=' + encodeURIComponent(clip.proxy_path);
+        thumb.appendChild(img);
+        _thumbObserver.observe(img);
+        const playBtn = document.createElement('button');
+        playBtn.className = 'thumb-play-btn';
+        playBtn.textContent = '▶';
+        playBtn.addEventListener('click', ev => {
+          ev.stopPropagation();
+          window.open('/player?path=' + encodeURIComponent(clip.proxy_path),
+            'clip_player_' + encodeURIComponent(clip.file_name),
+            'width=960,height=560,resizable=yes,menubar=no,toolbar=no,location=no,status=no');
+        });
+        thumb.appendChild(playBtn);
+      }
+      row.appendChild(thumb);
+
+      // Left column
+      const left = document.createElement('div');
+      const fname = document.createElement('div');
+      fname.className = 'result-filename';
+      fname.textContent = clip.file_name;
+      if (clip.good_take) {
+        const star = document.createElement('span');
+        star.className = 'good-take-star';
+        star.textContent = '★';
+        star.title = 'Good Take';
+        fname.appendChild(star);
+      }
+      const badge = document.createElement('span');
+      badge.className = 'offset-badge' + (isAnchor ? ' anchor' : '');
+      badge.textContent = isAnchor ? 'selected' : (clip.offset > 0 ? `+${clip.offset}` : `${clip.offset}`);
+      fname.appendChild(badge);
+      left.appendChild(fname);
+
+      const dir = document.createElement('div');
+      dir.className = 'result-dir';
+      dir.textContent = clip.clip_dir;
+      left.appendChild(dir);
+
+      const kwRow = document.createElement('div');
+      kwRow.className = 'result-keywords';
+      clip.keywords.forEach(kw => {
+        const tag = document.createElement('span');
+        tag.className = 'kw-tag';
+        tag.textContent = kw;
+        tag.addEventListener('click', () => {
+          document.getElementById('search-input').value = kw;
+          runSearch(kw);
+        });
+        kwRow.appendChild(tag);
+      });
+      left.appendChild(kwRow);
+      row.appendChild(left);
+
+      const meta = document.createElement('div');
+      meta.className = 'result-meta';
+      if (clip.date_iso) meta.textContent = clip.date_iso.slice(0, 10);
+      row.appendChild(meta);
+
+      row.addEventListener('click', e => {
+        if (e.target.closest('.kw-tag')) return;
+        selectClipInResolve(clip, row);
+      });
+      row.addEventListener('contextmenu', e => showContextMenu(e, clip));
+
+      container.appendChild(row);
+    });
   }
 
   document.getElementById('ctx-show-in-finder').addEventListener('click', async e => {

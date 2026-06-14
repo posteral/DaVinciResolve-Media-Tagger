@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-06-14
+
+### Added
+
+- **"Find neighboring shots" context menu** — right-click any clip to see the ±10 adjacent clips from the same folder, sorted by filename. The anchor clip is highlighted in amber and labelled "selected"; others show their offset (−3, +1, etc.). Total clips in the folder shown in the status bar. `search_index.get_neighbors` + `/search/api/neighbors` route.
+
 ## [0.25.0] - 2026-06-14
 
 ### Added

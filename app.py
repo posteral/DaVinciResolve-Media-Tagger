@@ -698,6 +698,19 @@ def search_histogram():
     return jsonify(search_index.search_histogram(_SEARCH_DB_PATH, q, good_take_only=good_take_only))
 
 
+@app.route("/search/api/neighbors")
+def search_neighbors():
+    file_name = request.args.get("file_name", "").strip()
+    clip_dir  = request.args.get("clip_dir",  "").strip()
+    if not file_name or not clip_dir:
+        return jsonify({"error": "file_name and clip_dir required"}), 400
+    try:
+        window = min(int(request.args.get("window", 10)), 50)
+    except ValueError:
+        window = 10
+    return jsonify(search_index.get_neighbors(_SEARCH_DB_PATH, file_name, clip_dir, window))
+
+
 @app.route("/search/api/keywords")
 def search_keywords():
     return jsonify({"keywords": search_index.get_all_keywords(_SEARCH_DB_PATH)})

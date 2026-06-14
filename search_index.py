@@ -340,6 +340,78 @@ def get_all_keywords(db_path: str | Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Neighbor lookup
+# ---------------------------------------------------------------------------
+
+def get_neighbors(
+    db_path: str | Path,
+    file_name: str,
+    clip_dir: str,
+    window: int = 10,
+) -> dict[str, Any]:
+    """Return clips adjacent to the given clip within the same directory.
+
+    Clips are ordered by file_name (chronological for camera footage).
+    Returns up to `window` clips before and `window` clips after the anchor,
+    plus the anchor itself, all annotated with their position offset.
+
+    Returns:
+        {
+          "anchor": {file_name, clip_dir, ...} | None,
+          "results": [{..., "offset": int}, ...],   # offset 0 = anchor
+        }
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return {"anchor": None, "results": []}
+
+    try:
+        con = sqlite3.connect(str(path))
+        con.row_factory = sqlite3.Row
+        try:
+            rows = con.execute(
+                "SELECT id, file_name, clip_dir, keywords_raw, date_iso,"
+                "       duration_tc, good_take, proxy_path"
+                " FROM clips WHERE clip_dir = ?"
+                " ORDER BY file_name",
+                (clip_dir,),
+            ).fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return {"anchor": None, "results": []}
+
+    if not rows:
+        return {"anchor": None, "results": []}
+
+    # Find the anchor position.
+    anchor_idx = next((i for i, r in enumerate(rows) if r["file_name"] == file_name), None)
+    if anchor_idx is None:
+        return {"anchor": None, "results": []}
+
+    lo = max(0, anchor_idx - window)
+    hi = min(len(rows) - 1, anchor_idx + window)
+
+    def _row_to_dict(row, offset: int) -> dict:
+        kws = [k for k in row["keywords_raw"].split(",") if k]
+        return {
+            "id": row["id"],
+            "file_name": row["file_name"],
+            "clip_dir": row["clip_dir"],
+            "keywords": kws,
+            "date_iso": row["date_iso"],
+            "duration_tc": row["duration_tc"],
+            "good_take": bool(row["good_take"]),
+            "proxy_path": row["proxy_path"] or None,
+            "offset": offset,
+        }
+
+    results = [_row_to_dict(rows[i], i - anchor_idx) for i in range(lo, hi + 1)]
+    anchor_dict = _row_to_dict(rows[anchor_idx], 0)
+    return {"anchor": anchor_dict, "results": results, "total": len(rows)}
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
