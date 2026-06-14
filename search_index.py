@@ -231,6 +231,7 @@ def get_status(db_path: str | Path) -> dict[str, Any]:
 def search_histogram(
     db_path: str | Path,
     query: str,
+    good_take_only: bool = False,
 ) -> dict[str, Any]:
     """Return a date histogram for all clips matching query.
 
@@ -250,20 +251,26 @@ def search_histogram(
         return {"buckets": [], "bucket_size": "month"}
 
     q = query.strip()
-    if not q:
+    if not q and not good_take_only:
         return {"buckets": [], "bucket_size": "month"}
-
-    fts_query = _build_fts_query(q)
 
     try:
         con = sqlite3.connect(str(path))
         try:
-            rows = con.execute(
-                "SELECT clips.date_iso FROM clips_fts"
-                " JOIN clips ON clips.id = clips_fts.rowid"
-                " WHERE clips_fts MATCH ? AND clips.date_iso IS NOT NULL",
-                (fts_query,),
-            ).fetchall()
+            if q:
+                fts_query = _build_fts_query(q)
+                gt_clause = " AND clips.good_take = 1" if good_take_only else ""
+                rows = con.execute(
+                    "SELECT clips.date_iso FROM clips_fts"
+                    " JOIN clips ON clips.id = clips_fts.rowid"
+                    f" WHERE clips_fts MATCH ?{gt_clause} AND clips.date_iso IS NOT NULL",
+                    (fts_query,),
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    "SELECT date_iso FROM clips"
+                    " WHERE good_take = 1 AND date_iso IS NOT NULL",
+                ).fetchall()
         finally:
             con.close()
     except Exception:

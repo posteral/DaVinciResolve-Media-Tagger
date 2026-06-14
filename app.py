@@ -694,7 +694,8 @@ def search_show_in_finder():
 @app.route("/search/api/histogram")
 def search_histogram():
     q = request.args.get("q", "").strip()
-    return jsonify(search_index.search_histogram(_SEARCH_DB_PATH, q))
+    good_take_only = request.args.get("good_take_only", "").lower() in ("1", "true")
+    return jsonify(search_index.search_histogram(_SEARCH_DB_PATH, q, good_take_only=good_take_only))
 
 
 @app.route("/search/api/keywords")

@@ -583,7 +583,6 @@
       _currentOffset = 0;
       document.getElementById('results').innerHTML = '';
       document.getElementById('result-count').textContent = '';
-      document.getElementById('histogram-wrap').style.display = 'none';
       if (!keepDateFilter) {
         _currentDateFrom  = null;
         _currentDateTo    = null;
@@ -595,8 +594,12 @@
       const params = new URLSearchParams({ good_take_only: '1', limit: LIMIT, offset: _currentOffset });
       if (_currentDateFrom) params.set('date_from', _currentDateFrom);
       if (_currentDateTo)   params.set('date_to',   _currentDateTo);
-      const res  = await fetch('/search/api/query?' + params);
+      const [res, histRes] = await Promise.all([
+        fetch('/search/api/query?' + params),
+        append ? Promise.resolve(null) : fetch('/search/api/histogram?good_take_only=1'),
+      ]);
       const data = await res.json();
+      if (histRes) { const histData = await histRes.json(); renderHistogram(histData); }
       _total = data.total || 0;
       _currentOffset += data.results.length;
       document.getElementById('result-count').textContent =
