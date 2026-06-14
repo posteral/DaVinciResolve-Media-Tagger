@@ -24,7 +24,8 @@
       background: #111;
       border-bottom: 1px solid #2a2a2a;
     }
-    .header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; white-space: nowrap; }
+    .header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; white-space: nowrap; cursor: pointer; }
+    .header h1:hover { color: #ccc; }
     .header a  { color: #888; font-size: 0.85rem; text-decoration: none; }
     .header a:hover { color: #ccc; }
 
@@ -358,6 +359,7 @@
   let _currentQuery = '';
   let _currentOffset = 0;
   let _total = 0;
+  let _goodTakeMode = false;   // true when browsing all Good Takes (no text query)
   const LIMIT = 50;
 
   // Date filter state (set by clicking a histogram bar).
@@ -574,17 +576,45 @@
     setTimeout(hideDropdown, 150);
   });
 
-  async function runSearch(q, append = false, keepDateFilter = false) {
-    if (!q) {
+  async function loadGoodTakes(append = false, keepDateFilter = false) {
+    _goodTakeMode = true;
+    if (!append) {
+      _currentQuery  = '';
+      _currentOffset = 0;
       document.getElementById('results').innerHTML = '';
       document.getElementById('result-count').textContent = '';
-      document.getElementById('load-more').style.display = 'none';
       document.getElementById('histogram-wrap').style.display = 'none';
-      _currentDateFrom = null;
-      _currentDateTo   = null;
-      _currentBucketKey = null;
+      if (!keepDateFilter) {
+        _currentDateFrom  = null;
+        _currentDateTo    = null;
+        _currentBucketKey = null;
+      }
+    }
+    document.getElementById('search-spinner').style.display = 'inline';
+    try {
+      const params = new URLSearchParams({ good_take_only: '1', limit: LIMIT, offset: _currentOffset });
+      if (_currentDateFrom) params.set('date_from', _currentDateFrom);
+      if (_currentDateTo)   params.set('date_to',   _currentDateTo);
+      const res  = await fetch('/search/api/query?' + params);
+      const data = await res.json();
+      _total = data.total || 0;
+      _currentOffset += data.results.length;
+      document.getElementById('result-count').textContent =
+        _total === 0 ? 'No good takes' : `${_total.toLocaleString()} good takes`;
+      renderResults(data.results, '', append);
+      document.getElementById('load-more').style.display = _currentOffset < _total ? 'block' : 'none';
+    } catch (_) {
+      document.getElementById('result-count').textContent = 'Search error';
+    }
+    document.getElementById('search-spinner').style.display = 'none';
+  }
+
+  async function runSearch(q, append = false, keepDateFilter = false) {
+    if (!q) {
+      loadGoodTakes(false, keepDateFilter);
       return;
     }
+    _goodTakeMode = false;
     if (!append) {
       _currentQuery = q;
       _currentOffset = 0;
@@ -629,7 +659,8 @@
   }
 
   document.getElementById('load-more').addEventListener('click', () => {
-    runSearch(_currentQuery, true);
+    if (_goodTakeMode) loadGoodTakes(true, true);
+    else runSearch(_currentQuery, true);
   });
 
   function renderResults(results, query, append) {
@@ -974,9 +1005,17 @@
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') hideContextMenu(); });
 
+  // ── "Shot Finder" heading resets to Good Takes landing ───────────────────
+  document.querySelector('.header h1').addEventListener('click', () => {
+    document.getElementById('search-input').value = '';
+    hideDropdown();
+    loadGoodTakes();
+  });
+
   // ── Init ──────────────────────────────────────────────────────────────────
   loadStatus();
   loadKeywords();
+  loadGoodTakes();
 </script>
 </body>
 </html>

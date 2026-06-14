@@ -707,6 +707,7 @@ def search_query():
     q = request.args.get("q", "").strip()
     date_from = request.args.get("date_from", "").strip() or None
     date_to = request.args.get("date_to", "").strip() or None
+    good_take_only = request.args.get("good_take_only", "").lower() in ("1", "true")
     try:
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = int(request.args.get("offset", 0))
@@ -715,6 +716,7 @@ def search_query():
     return jsonify(search_index.search_clips(
         _SEARCH_DB_PATH, q, limit, offset,
         date_from=date_from, date_to=date_to,
+        good_take_only=good_take_only,
     ))
 
 

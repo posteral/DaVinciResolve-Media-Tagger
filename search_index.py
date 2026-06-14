@@ -367,11 +367,16 @@ def search_clips(
     offset: int = 0,
     date_from: str | None = None,
     date_to: str | None = None,
+    good_take_only: bool = False,
 ) -> dict[str, Any]:
     """Full-text keyword search against the clips_fts index.
 
     Each whitespace-separated word in query must appear in the keywords of a
     matching clip (implicit AND via FTS5 prefix queries).
+
+    When good_take_only=True and query is empty, returns all Good Take clips
+    ordered by date descending (no FTS needed). When query is also provided,
+    filters FTS results to Good Takes only.
 
     Returns:
         {
@@ -384,6 +389,7 @@ def search_clips(
               "keywords": [str],  # sorted list
               "date_iso": str|None,
               "duration_tc": str,
+              "good_take": bool,
             },
             ...
           ]
@@ -394,10 +400,8 @@ def search_clips(
         return {"total": 0, "results": []}
 
     q = query.strip()
-    if not q:
+    if not q and not good_take_only:
         return {"total": 0, "results": []}
-
-    fts_query = _build_fts_query(q)
 
     # Optional date range filter.
     date_clause = ""
@@ -413,24 +417,42 @@ def search_clips(
         con = sqlite3.connect(str(path))
         con.row_factory = sqlite3.Row
         try:
-            total_row = con.execute(
-                "SELECT COUNT(*) FROM clips_fts"
-                " JOIN clips ON clips.id = clips_fts.rowid"
-                f" WHERE clips_fts MATCH ?{date_clause}",
-                [fts_query] + date_params,
-            ).fetchone()
-            total = total_row[0] if total_row else 0
-
-            rows = con.execute(
-                "SELECT clips.id, clips.file_name, clips.clip_dir,"
-                "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take, clips.proxy_path"
-                " FROM clips_fts"
-                " JOIN clips ON clips.id = clips_fts.rowid"
-                f" WHERE clips_fts MATCH ?{date_clause}"
-                " ORDER BY clips.good_take DESC, clips.date_iso DESC, clips.file_name"
-                " LIMIT ? OFFSET ?",
-                [fts_query] + date_params + [limit, offset],
-            ).fetchall()
+            if q:
+                # FTS path — optionally filtered to Good Takes.
+                fts_query = _build_fts_query(q)
+                gt_clause = " AND clips.good_take = 1" if good_take_only else ""
+                total_row = con.execute(
+                    "SELECT COUNT(*) FROM clips_fts"
+                    " JOIN clips ON clips.id = clips_fts.rowid"
+                    f" WHERE clips_fts MATCH ?{gt_clause}{date_clause}",
+                    [fts_query] + date_params,
+                ).fetchone()
+                total = total_row[0] if total_row else 0
+                rows = con.execute(
+                    "SELECT clips.id, clips.file_name, clips.clip_dir,"
+                    "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take, clips.proxy_path"
+                    " FROM clips_fts"
+                    " JOIN clips ON clips.id = clips_fts.rowid"
+                    f" WHERE clips_fts MATCH ?{gt_clause}{date_clause}"
+                    " ORDER BY clips.good_take DESC, clips.date_iso DESC, clips.file_name"
+                    " LIMIT ? OFFSET ?",
+                    [fts_query] + date_params + [limit, offset],
+                ).fetchall()
+            else:
+                # No text query — Good Takes browse (no FTS join needed).
+                total_row = con.execute(
+                    f"SELECT COUNT(*) FROM clips WHERE good_take = 1{date_clause}",
+                    date_params,
+                ).fetchone()
+                total = total_row[0] if total_row else 0
+                rows = con.execute(
+                    "SELECT id, file_name, clip_dir, keywords_raw, date_iso,"
+                    "       duration_tc, good_take, proxy_path"
+                    f" FROM clips WHERE good_take = 1{date_clause}"
+                    " ORDER BY date_iso DESC, file_name"
+                    " LIMIT ? OFFSET ?",
+                    date_params + [limit, offset],
+                ).fetchall()
 
             results = []
             for row in rows:

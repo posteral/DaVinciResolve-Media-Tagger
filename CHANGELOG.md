@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-06-14
+
+### Added
+
+- **Shot Finder landing: Good Takes browse** — opening Shot Finder (or clearing the search box) now shows all Good Take clips sorted by date descending, instead of a blank page. `search_clips` gains a `good_take_only` flag that queries the `clips` table directly without FTS when no text query is present; exposed as `?good_take_only=1` on `/search/api/query`.
+- **"Shot Finder" heading is clickable** — clicking the h1 clears the search input and resets to the Good Takes landing view.
+
 ## [0.24.1] - 2026-06-14
 
 ### Fixed
