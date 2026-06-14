@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-06-14
+
+### Fixed
+
+- **Player duration wrong on Chrome for MOV files** — Chrome reports an incorrect duration from the `empty_moov` header of the fragmented MP4 stream, causing the scrubber to max out early and the video to appear to play past the end. Fixed by probing the true duration with `ffprobe` at page-render time and injecting it as `SERVER_DURATION` into the player. The client now uses the server-provided value and only falls back to `vid.duration` if none was supplied.
+
 ## [0.24.0] - 2026-06-11
 
 ### Added

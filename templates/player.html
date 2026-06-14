@@ -127,8 +127,9 @@
 </div>
 
 <script>
-  const PROXY_PATH = {{ path | tojson }};
-  const vid        = document.getElementById('vid');
+  const PROXY_PATH      = {{ path | tojson }};
+  const SERVER_DURATION = {{ duration | tojson }};  // ffprobe result; null if unavailable
+  const vid             = document.getElementById('vid');
   const playBtn    = document.getElementById('play-btn');
   const overlay    = document.getElementById('play-overlay');
   const seekOvl    = document.getElementById('seek-overlay');
@@ -138,7 +139,7 @@
   const timeDisp   = document.getElementById('time-display');
 
   // We track these separately because seeking reloads the src
-  let totalDuration = null;  // set once from first loadedmetadata
+  let totalDuration = (SERVER_DURATION && SERVER_DURATION > 0) ? SERVER_DURATION : null;
   let seekOffset    = 0;     // seconds already played before current src load
   let wasPlaying    = true;
 
@@ -174,7 +175,13 @@
   }
 
   vid.addEventListener('loadedmetadata', () => {
-    if (totalDuration === null) totalDuration = vid.duration + seekOffset;
+    // Only fall back to vid.duration if the server didn't provide one.
+    // vid.duration is unreliable for MOV files streamed as fragmented MP4
+    // (Chrome reads a wrong value from the empty_moov header).
+    if (totalDuration === null) {
+      const d = vid.duration;
+      if (isFinite(d) && d > 0) totalDuration = d + seekOffset;
+    }
     seekOvl.classList.remove('visible');
     updateScrub();
     if (wasPlaying) vid.play().catch(() => {});

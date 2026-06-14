@@ -718,12 +718,28 @@ def search_query():
     ))
 
 
+def _probe_duration(path: str) -> float | None:
+    """Return the duration of a media file in seconds using ffprobe, or None on failure."""
+    import subprocess, json as _json
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        info = _json.loads(result.stdout)
+        d = float(info["format"]["duration"])
+        return d if d > 0 else None
+    except Exception:
+        return None
+
+
 @app.route("/player")
 def player_page():
     path = request.args.get("path", "").strip()
     if not path or not os.path.isfile(path):
         return "File not found", 404
-    return render_template("player.html", path=path, filename=os.path.basename(path))
+    duration = _probe_duration(path)
+    return render_template("player.html", path=path, filename=os.path.basename(path), duration=duration)
 
 
 @app.route("/api/clip/proxy")
