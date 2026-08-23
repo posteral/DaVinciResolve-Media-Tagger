@@ -23,7 +23,7 @@ Usage
    If output_file is omitted the fixed file is written next to the input with
    " FIXED" appended to the stem, e.g.:
 
-       Master Footage Catalog.csv  →  Master Footage Catalog FIXED.csv
+       export.csv  →  export FIXED.csv
 
 3. In Resolve: File → Import → Timeline Markers / Metadata... → select the output file.
 

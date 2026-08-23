@@ -134,7 +134,7 @@
       border: 1px solid #2a2a2a;
     }
     .result-thumb.no-proxy::after {
-      content: '—';
+      content: '-';
       color: #444;
       font-size: 0.8rem;
     }
@@ -429,8 +429,8 @@
 
   // Parse a query string into token objects: {text, excluded}.
   // Supports quoted phrases and -exclusions.
-  // e.g. 'Sawyer "rolling hills" -Marc' →
-  //   [{text:'Sawyer',excluded:false}, {text:'rolling hills',excluded:false}, {text:'Marc',excluded:true}]
+  // e.g. 'Alex "rolling hills" -Jordan' →
+  //   [{text:'Alex',excluded:false}, {text:'rolling hills',excluded:false}, {text:'Jordan',excluded:true}]
   function parseQueryTokens(q) {
     const tokens = [];
     const re = /(-?)"([^"]+)"|(-?)(\S+)/g;

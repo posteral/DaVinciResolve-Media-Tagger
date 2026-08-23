@@ -34,7 +34,7 @@ media pool viewer.
 - Build runs in a background thread; UI shows a progress indicator.
 
 **Search**
-- Full-text keyword search: type "sunset Corsica" → clips tagged with both.
+- Full-text keyword search: type "sunset coastline" → clips tagged with both.
 - Browse by keyword: click any keyword tag in results to filter by it.
 - Results sorted by relevance (keyword match score), with date as tiebreaker.
 - Pagination or virtual scroll for large result sets.
@@ -90,7 +90,7 @@ media pool viewer.
 **M2 — Search API** ✅
 - `GET /search/api/query?q=&limit=&offset=` → paginated FTS5 results
 - Full-text search via SQLite FTS5 with prefix matching
-- Quoted phrase support (`"rolling hills"`), exclusion syntax (`-Marc`)
+- Quoted phrase support (`"rolling hills"`), exclusion syntax (`-Alex`)
 - Results sorted: Good Takes first, then date descending
 
 **M3 — Search UI** ✅
@@ -114,7 +114,7 @@ media pool viewer.
 - Co-occurrence ranking: clips that share multiple keywords with your query
   rank higher than clips with just one match
 - Natural language query via Ollama (llama3): parse "outdoor clips from
-  Corsica with people" into keyword filters
+  the coast with people" into keyword filters
 
 ---
 
@@ -136,10 +136,10 @@ set is small enough, a "Select in Resolve" CTA jumps to those clips.
 
 1. Tree root: all 23,293 clips, all keywords listed by frequency.
 2. Click **France** → filter set: {France}, 847 clips.
-   Tree now shows only keywords that co-occur with France (Paris, Marc,
-   Corsica, …), each with their France-filtered count.
+   Tree now shows only keywords that co-occur with France (Paris, Alex,
+   the coast, …), each with their France-filtered count.
 3. Click **Paris** → filter set: {France, Paris}, 312 clips.
-4. Click **Marc** → filter set: {France, Paris, Marc}, 41 clips.
+4. Click **Alex** → filter set: {France, Paris, Alex}, 41 clips.
 5. Click **Select in Resolve** → server selects those 41 clips in the
    media pool (or opens the matching Smart Bin if one exists).
 
@@ -156,7 +156,7 @@ set is small enough, a "Select in Resolve" CTA jumps to those clips.
 - `GET /tree/api/nodes?kw=France,Paris` → list of `{keyword, clip_count}`
   for all keywords that co-occur with the current filter set, sorted by
   clip_count desc.
-- `GET /tree/api/clips?kw=France,Paris,Marc` → list of matching
+- `GET /tree/api/clips?kw=France,Paris,Alex` → list of matching
   `{clip_id, file_name, clip_dir, keywords}` (capped at 200).
 - Reuses `POST /search/api/select` (M4) for the jump-to-Resolve CTA.
 

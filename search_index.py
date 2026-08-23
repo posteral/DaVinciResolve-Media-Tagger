@@ -427,7 +427,7 @@ def _build_fts_query(q: str) -> str:
     """Convert a user query string to an FTS5 query.
 
     Handles quoted phrases, bare words, and -exclusions.
-    e.g. 'italy "rolling hills" -Marc' → '"italy"* "rolling hills"* NOT "Marc"*'
+    e.g. 'italy "rolling hills" -Alex' → '"italy"* "rolling hills"* NOT "Alex"*'
     """
     parts = []
     for m in re.finditer(r'(-?)"([^"]+)"|(-?)(\S+)', q):

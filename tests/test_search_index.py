@@ -608,8 +608,8 @@ class TestBuildFtsQuery(unittest.TestCase):
         self.assertEqual(result, '"France"* "rolling hills"*')
 
     def test_exclusion_bare_word(self):
-        result = search_index._build_fts_query("-Marc")
-        self.assertEqual(result, 'NOT "Marc"*')
+        result = search_index._build_fts_query("-Alex")
+        self.assertEqual(result, 'NOT "Alex"*')
 
     def test_exclusion_with_dash_prefix(self):
         result = search_index._build_fts_query("sunset -indoor")
@@ -626,8 +626,8 @@ class TestBuildFtsQuery(unittest.TestCase):
         self.assertEqual(search_index._build_fts_query("   ").strip(), "")
 
     def test_complex_query(self):
-        result = search_index._build_fts_query('Italy "rolling hills" -Marc')
-        self.assertEqual(result, '"Italy"* "rolling hills"* NOT "Marc"*')
+        result = search_index._build_fts_query('Italy "rolling hills" -Alex')
+        self.assertEqual(result, '"Italy"* "rolling hills"* NOT "Alex"*')
 
 
 # ---------------------------------------------------------------------------
