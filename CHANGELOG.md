@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-08-23
+
+### Added
+
+- **Tag Timeline** (`/timeline-tag`) — scans the active timeline in Resolve (video + audio tracks), finds every unique clip actually cut into it, and syncs a keyword across the whole project: adds it to newly-used clips, removes it from clips no longer on the timeline. Two-step preview → apply flow so nothing writes until you confirm. The default tag is `Used:{ProjectName}`, but it's editable, and re-adopts an already-applied custom tag if a majority of the timeline's clips carry one. `resolve_api.sync_timeline_used_tag()`, `POST /api/timeline/tag-used-media`.
+- **Hub landing page** (`/`) — new top-level page to choose between Clip Keywords, Shot Finder, and Tag Timeline. The single-clip tagger moved from `/` to `/tagger`.
+- **Shot Finder: filename substring search** — `search_histogram` and `search_clips` now also match on file name substring, not just FTS keyword match, merged and deduped with the keyword results.
+
 ## [0.26.0] - 2026-06-14
 
 ### Added
