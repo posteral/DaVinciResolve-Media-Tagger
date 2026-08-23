@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Reconcile Keywords** (`/reconcile`) — 4th hub page. Union-merges keywords from every `Used:...`-tagged clip in the current project into the matching clips of another project (e.g. a master footage catalog), never dropping a keyword either side already has. Handles the case where the target project lives in a different Resolve database than the current one, searching every known database and switching back afterward. Clips are matched by filename + frame count — not file path (breaks for clips Resolve copied into the project bundle via media management) and not file timestamps (confirmed live that "Date Modified" can silently drift by a fixed offset for footage backed up/ingested across timezones, so it can't be trusted as an identity signal). Two-step preview → apply flow. `resolve_api.reconcile_project_keywords()`, `POST /api/reconcile`, `GET /api/projects`, `GET /api/config/reconcile`. The default target project is configurable via `default_reconcile_target` in `keywords_config.json`.
+
 ## [0.27.0] - 2026-08-23
 
 ### Added
