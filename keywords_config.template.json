@@ -3,5 +3,6 @@
     "Person One",
     "Person Two",
     "Place Name"
-  ]
+  ],
+  "default_reconcile_target": ""
 }

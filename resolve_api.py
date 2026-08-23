@@ -674,6 +674,342 @@ def sync_timeline_used_tag(resolve: Any, dry_run: bool = False, tag: str | None 
     }
 
 
+def _dominant_used_tag(keyword_lists: Iterable[list[str]]) -> str | None:
+    """Return the most common `Used:...` keyword across `keyword_lists` (one
+    list per clip; the mode, no majority threshold) — used to suggest a
+    default tag for reconciliation. Returns None if none carry a
+    `Used:...` keyword."""
+    counts: dict[str, int] = {}
+    original: dict[str, str] = {}
+    for kws in keyword_lists:
+        for kw in kws:
+            if kw.lower().startswith("used:"):
+                low = kw.lower()
+                counts[low] = counts.get(low, 0) + 1
+                original.setdefault(low, kw)
+    if not counts:
+        return None
+    best_low = max(counts.items(), key=lambda kv: kv[1])[0]
+    return original[best_low]
+
+
+def _collect_clip_lookup_recursive(folder: Any, result: dict) -> None:
+    """Walk folder tree, populating result[(file_name, frames)] = clip.
+
+    Matches on (file_name, Frames) rather than file path — confirmed live
+    that Resolve's media-management "copy into project" glues a
+    project-bundle prefix onto the path (e.g. ".../Project X.dra/MediaFiles/
+    <original path>"), which breaks any path-based match between a working
+    project's managed copy and the same clip's entry in another project.
+    Date Modified looked like a good second signal alongside filename, but
+    isn't reliable — confirmed live that it drifts by a fixed offset (e.g.
+    exactly 6 hours) for some clips between a project's copy and the
+    original, almost certainly a timezone bug in whatever tool ingested
+    that batch. Frames is a total frame count derived straight from the
+    video content, immune to that kind of drift, and matched exactly in
+    every case checked — combined with filename it's still effectively
+    collision-proof against generic camera filenames (e.g. "C0233.MP4")
+    repeating across unrelated shoots in a 25k+-clip catalog. Clips with no
+    parseable frame count are skipped entirely — an unparseable value
+    can't be trusted as an identity signal, and would otherwise collide
+    with every other clip missing it under the same filename.
+
+    Cheap pass — only GetName()/GetClipProperty("Frames"), no full
+    metadata reads — used to get a writable clip reference for the small
+    subset of clips matched via a bulk ExportMetadata read."""
+    import search_index
+    for clip in _as_sequence(folder.GetClipList()):
+        frames = search_index._parse_frames(clip.GetClipProperty("Frames") or "")
+        if frames is not None:
+            result[(clip.GetName(), frames)] = clip
+    for subfolder in _as_sequence(folder.GetSubFolderList()):
+        _collect_clip_lookup_recursive(subfolder, result)
+
+
+def list_projects(resolve: Any) -> dict:
+    """Return {"current": name, "current_database": name, "projects": [...],
+    "databases": [...]} for the current Resolve database's Project Manager.
+
+    `projects` only lists what's visible in the *current* database — it
+    does not search other databases (that would mean switching away from
+    whatever the user has open just to populate a list). `databases` is
+    informational only, listing every database name Reconcile will search
+    through when actually run.
+
+    Purely read-only browsing — does not load or switch the active project
+    or database (GotoRootFolder only changes Project Manager navigation
+    state)."""
+    pm = resolve.GetProjectManager()
+    if pm is None:
+        return {"current": "", "current_database": "", "projects": [], "databases": []}
+    current_project = pm.GetCurrentProject()
+    current = current_project.GetName() if current_project else ""
+    current_database = pm.GetCurrentDatabase() or {}
+    pm.GotoRootFolder()
+    projects = _as_sequence(pm.GetProjectListInCurrentFolder())
+    databases = [db.get("DbName", "") for db in _as_sequence(pm.GetDatabaseList())]
+    return {
+        "current": current,
+        "current_database": current_database.get("DbName", ""),
+        "projects": sorted(projects, key=str.casefold),
+        "databases": sorted({d for d in databases if d}, key=str.casefold),
+    }
+
+
+def reconcile_project_keywords(
+    resolve: Any, target_project_name: str, tag: str | None = None, dry_run: bool = False
+) -> dict:
+    """Union-merge keywords from every `Used:...`-tagged clip in the current
+    project into the matching clips (by (file_name, Frames) — see
+    _collect_clip_lookup_recursive for why) of a different target project,
+    then restore the original project as current.
+
+    This is a general cross-project reconciliation, not tied to any
+    particular "master catalog" — the target project is whatever name is
+    passed in. Never overwrites or intersects: each matched target clip
+    ends up with the union of its own keywords and the source clip's
+    keywords. The source (current) project's clips are never modified.
+
+    Switches Resolve's active project via ProjectManager.LoadProject() to
+    reach the target. The target project may live in a different Resolve
+    database than the current one (e.g. a master catalog kept on an
+    internal drive while working projects live on an external one) —
+    LoadProject() only ever searches the current database, so this first
+    checks the current database, then searches every other known database
+    (GetDatabaseList()) for the target project by name. Always attempts to
+    restore the original database *and* explicitly reload the original
+    project before returning (even on error) — switching database alone
+    does not restore whatever project was previously loaded (confirmed
+    live: it leaves an "Untitled Project" behind, not the prior project).
+    Saves the source project before switching away so nothing unsaved is
+    at risk.
+
+    Raises RuntimeError with a descriptive message for: no current
+    project/media pool, an empty target name, target_project_name equal to
+    the current project (case-insensitive), no clip in the current project
+    carrying any `Used:...` keyword when `tag` is not given, a tag with a
+    comma/semicolon, SaveProject() failure, the target project not found in any
+    known database, or LoadProject() failure to reach it once found (in
+    either not-found case, the original database/project is restored
+    before raising).
+    """
+    import tempfile
+    import search_index
+
+    project_manager = resolve.GetProjectManager()
+    source_project = project_manager.GetCurrentProject() if project_manager else None
+    if source_project is None:
+        raise RuntimeError("No current project")
+    source_media_pool = source_project.GetMediaPool()
+    if source_media_pool is None:
+        raise RuntimeError("No media pool")
+
+    source_project_name = source_project.GetName() or "Untitled Project"
+    target_project_name = (target_project_name or "").strip()
+    if not target_project_name:
+        raise RuntimeError("Target project is required")
+    if target_project_name.lower() == source_project_name.lower():
+        raise RuntimeError("Target project cannot be the same as the current project")
+
+    # Gather the source side entirely before touching project state. A live
+    # per-clip walk rather than a bulk ExportMetadata read (unlike the
+    # target below) — the source project is small (hundreds, not tens of
+    # thousands, of clips), and ExportMetadata silently skips any row with
+    # no "Clip Directory" (e.g. a Fusion title/generator clip with no disk
+    # path), which would make a tagged-but-pathless clip vanish from the
+    # counts entirely instead of correctly showing up as unmatched.
+    source_root = source_media_pool.GetRootFolder()
+    all_source_clips: list = []
+    if source_root is not None:
+        _collect_all_clips(source_root, all_source_clips)
+    source_clip_keywords = [get_keywords(clip) for clip in all_source_clips]
+
+    tag = (tag or "").strip()
+    if not tag:
+        tag = _dominant_used_tag(source_clip_keywords) or ""
+    if not tag:
+        raise RuntimeError("No clip in the current project carries a Used:... keyword")
+    if "," in tag or ";" in tag:
+        raise RuntimeError("Tag cannot contain commas or semicolons")
+
+    used_entries = []
+    for clip, kws in zip(all_source_clips, source_clip_keywords):
+        if any(k.lower() == tag.lower() for k in kws):
+            frames = search_index._parse_frames(clip.GetClipProperty("Frames") or "")
+            used_entries.append({
+                "file_name": clip.GetName() or "",
+                "frames": frames,
+                "keywords": kws,
+            })
+
+    if not used_entries:
+        raise RuntimeError(f"No clip in {source_project_name!r} carries the tag {tag!r}")
+
+    if not project_manager.SaveProject():
+        raise RuntimeError(
+            "Could not save the current project before switching — aborted, nothing was changed"
+        )
+
+    # The target project may live in a different Resolve database (e.g. a
+    # master catalog on an internal drive while working projects live on an
+    # external one) — LoadProject() only ever searches the *current*
+    # database, so find which database actually has it first. Try the
+    # current database before searching others (fast path — most runs will
+    # target something already reachable).
+    source_database = project_manager.GetCurrentDatabase()
+    target_database = source_database
+
+    def _restore_source() -> bool:
+        """Best-effort restore of the original database + project, verified
+        and retried — confirmed live that switching back immediately after
+        a heavy write (hundreds of keyword writes plus a full project
+        save) can transiently fail silently: SetCurrentDatabase/LoadProject
+        just return without actually landing back on the source, no
+        exception raised. Returns True only once GetCurrentProject()
+        actually confirms we're back."""
+        for _ in range(5):
+            project_manager.SetCurrentDatabase(source_database)
+            project_manager.LoadProject(source_project_name)
+            current = project_manager.GetCurrentProject()
+            if current is not None and current.GetName() == source_project_name:
+                return True
+            time.sleep(0.5)
+        return False
+
+    project_manager.GotoRootFolder()
+    found = target_project_name in _as_sequence(project_manager.GetProjectListInCurrentFolder())
+    if not found:
+        for db in _as_sequence(project_manager.GetDatabaseList()):
+            if db == source_database:
+                continue
+            if not project_manager.SetCurrentDatabase(db):
+                continue
+            project_manager.GotoRootFolder()
+            if target_project_name in _as_sequence(project_manager.GetProjectListInCurrentFolder()):
+                target_database = db
+                found = True
+                break
+        if not found:
+            restored = _restore_source()
+            msg = f"Could not find project {target_project_name!r} in any known database"
+            if not restored:
+                msg += f". Also failed to switch Resolve back to {source_project_name!r} — check it manually"
+            raise RuntimeError(msg)
+
+    # At this point Resolve is already positioned on target_database,
+    # either unchanged (found in the current one) or switched to it above.
+    if not project_manager.LoadProject(target_project_name):
+        restored = _restore_source()
+        msg = f"Could not load project {target_project_name!r}"
+        if not restored:
+            msg += f". Also failed to switch Resolve back to {source_project_name!r} — check it manually"
+        raise RuntimeError(msg)
+
+    try:
+        target_project = project_manager.GetCurrentProject()
+        target_media_pool = target_project.GetMediaPool()
+
+        # Bulk read of the target's current keywords via ExportMetadata —
+        # avoids a slow per-clip GetMetadata() walk across a large catalog.
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as f:
+            csv_path = f.name
+        try:
+            if not export_metadata(resolve, csv_path):
+                raise RuntimeError(f"ExportMetadata failed for {target_project_name!r}")
+            target_clips_meta = search_index.parse_export_csv(csv_path)
+        finally:
+            try:
+                os.unlink(csv_path)
+            except OSError:
+                pass
+
+        # Keyed by (file_name, Frames) — not path, and not Date Modified.
+        # Resolve's media-management "copy into project" glues a
+        # project-bundle prefix onto the path, breaking any path-based
+        # match for a managed/copied clip. Date Modified looked like a good
+        # second signal but isn't reliable: confirmed live that some of
+        # this catalog's more recently-ingested clips have a Date Modified
+        # that drifts by a fixed offset (e.g. exactly 6 hours) between a
+        # project's copy and the original — almost certainly a timezone
+        # bug in whatever tool ingested that batch, not anything Resolve
+        # or this code controls. Frames is derived straight from the video
+        # content and matched exactly in every case checked, including the
+        # ones where Date Modified drifted, so it's the reliable half of
+        # the fingerprint; combined with filename it's still effectively
+        # collision-proof against generic camera filenames (e.g.
+        # "C0233.MP4") repeating across unrelated shoots in a large
+        # catalog. Clips with no parseable frame count are dropped rather
+        # than risking a collision under a shared key.
+        target_keywords_by_key = {
+            (c["file_name"], c["frames"]): c["keywords"]
+            for c in target_clips_meta
+            if c["frames"] is not None
+        }
+
+        # Lightweight object lookup (no full metadata reads) — only needed
+        # to write the small subset of clips that actually change.
+        target_root = target_media_pool.GetRootFolder()
+        clip_lookup: dict = {}
+        if target_root is not None:
+            _collect_clip_lookup_recursive(target_root, clip_lookup)
+
+        updated: list = []
+        unmatched: list = []
+        already_synced = 0
+        for entry in used_entries:
+            if entry["frames"] is None:
+                unmatched.append(entry["file_name"])
+                continue
+            key = (entry["file_name"], entry["frames"])
+            if key not in target_keywords_by_key:
+                unmatched.append(entry["file_name"])
+                continue
+            target_kws = target_keywords_by_key[key]
+            target_kws_lower = {k.lower() for k in target_kws}
+            added = [k for k in entry["keywords"] if k.lower() not in target_kws_lower]
+            if not added:
+                already_synced += 1
+                continue
+            target_clip = clip_lookup.get(key)
+            if target_clip is None:
+                # Matched via the bulk export but not found in the live
+                # object walk (tree changed mid-operation) — surface it
+                # rather than silently dropping the update.
+                unmatched.append(entry["file_name"])
+                continue
+            if not dry_run:
+                set_keywords(target_clip, target_kws + added)
+            updated.append({"clip": entry["file_name"], "added": added})
+
+        # Writes above only land in Resolve's in-memory project state.
+        # Switching projects/databases without saving first discards them
+        # silently, exactly like closing a document without saving — this
+        # must happen while target is still current, before we switch away.
+        if not dry_run and updated:
+            project_manager.SaveProject()
+    finally:
+        # Switching database does not by itself restore whatever project
+        # was previously loaded (confirmed live: it leaves an "Untitled
+        # Project" behind) — both steps are required, in this order, and
+        # verified/retried since the switch-back can transiently fail
+        # silently right after a heavy write (see _restore_source above).
+        restored = _restore_source()
+
+    return {
+        "source_project": source_project_name,
+        "source_database": source_database.get("DbName", ""),
+        "target_project": target_project_name,
+        "target_database": target_database.get("DbName", ""),
+        "tag": tag,
+        "used_count": len(used_entries),
+        "updated": updated,
+        "unmatched": unmatched,
+        "source_restored": restored,
+        "already_synced": already_synced,
+        "applied": not dry_run,
+    }
+
+
 def get_project_name(resolve: Any) -> str:
     """Return the current project name, or empty string on failure."""
     try:

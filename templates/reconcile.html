@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reconcile Keywords</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 24px;
+      background: #111;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; white-space: nowrap; }
+    .header a  { color: #888; font-size: 0.85rem; text-decoration: none; }
+    .header a:hover { color: #ccc; }
+
+    .content { padding: 24px; max-width: 720px; }
+
+    p.lead { color: #999; margin-bottom: 20px; line-height: 1.5; }
+
+    .field-row { margin-bottom: 20px; }
+    .field-row label {
+      display: block;
+      font-size: 0.8rem;
+      color: #999;
+      margin-bottom: 6px;
+    }
+    #target-input {
+      width: 100%;
+      background: #222;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #fff;
+      font-family: ui-monospace, monospace;
+      font-size: 0.9rem;
+      padding: 8px 12px;
+      outline: none;
+    }
+    #target-input:focus { border-color: #5a8a5a; }
+    #target-input.invalid { border-color: #9b4a4a; }
+    .field-hint { font-size: 0.75rem; color: #666; margin-top: 4px; }
+    .field-hint.error { color: #cf8e8e; }
+
+    .btn-row { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+
+    .btn {
+      background: #2a3a2a;
+      border: 1px solid #3a5a3a;
+      border-radius: 4px;
+      color: #8ecf8e;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 8px 16px;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #3a4a3a; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn.apply { background: #2a344a; border-color: #3a4a6a; color: #8eb4cf; }
+    .btn.apply:hover:not(:disabled) { background: #3a4460; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #444;
+      border-top-color: #8ecf8e;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #status { color: #999; margin-bottom: 16px; }
+    #status.error { color: #cf8e8e; }
+    #status.success { color: #8ecf8e; }
+
+    .summary {
+      background: #1f1f1f;
+      border: 1px solid #2e2e2e;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .summary .row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+    .summary .row span:first-child { color: #999; }
+    .summary .tag-value { color: #fff; font-family: ui-monospace, monospace; }
+    .summary .sub { color: #777; font-size: 0.8rem; }
+
+    .tag-edit-row { flex-direction: column; align-items: stretch !important; padding: 8px 0 12px !important; }
+    .tag-edit-row > span:first-child { margin-bottom: 6px; }
+    #tag-input {
+      width: 100%;
+      background: #222;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #fff;
+      font-family: ui-monospace, monospace;
+      font-size: 0.9rem;
+      padding: 8px 12px;
+      outline: none;
+    }
+    #tag-input:focus { border-color: #5a8a5a; }
+    #tag-input.invalid { border-color: #9b4a4a; }
+    .tag-hint { font-size: 0.75rem; color: #666; margin-top: 4px; }
+    .tag-hint.error { color: #cf8e8e; }
+
+    .clip-group { margin-top: 14px; }
+    .clip-group h3 { font-size: 0.8rem; color: #999; margin-bottom: 6px; font-weight: 600; }
+    .clip-group ul { list-style: none; max-height: 200px; overflow-y: auto; }
+    .clip-group li {
+      font-size: 0.82rem;
+      color: #ccc;
+      padding: 3px 8px;
+      border-bottom: 1px solid #262626;
+    }
+    .clip-group li .added { color: #8ecf8e; }
+    .clip-group.updated h3 { color: #8ecf8e; }
+    .clip-group.unmatched h3 { color: #cf8e8e; }
+    .clip-group.empty { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Reconcile Keywords</h1>
+  <a href="/">← Hub</a>
+</div>
+
+<div class="content">
+  <p class="lead">
+    Union-merges keywords from every <code>Used:...</code>-tagged clip in the
+    current project into the matching clips of another project, never
+    dropping a keyword either side already has. Clips are matched by
+    filename + frame count, not file path or file timestamps (timestamps
+    can silently drift during backups/ingest across timezones), so this still
+    works correctly for clips Resolve copied into the project bundle
+    (media management), where the on-disk path no longer matches the
+    original. This switches Resolve's active project to the target and back
+    while it runs, searching every known database if needed.
+  </p>
+
+  <div class="field-row">
+    <label for="target-input">Target project</label>
+    <input type="text" id="target-input" list="project-list" placeholder="e.g. Media Archive">
+    <datalist id="project-list"></datalist>
+    <div class="field-hint" id="current-project-hint"></div>
+    <div class="field-hint" id="target-error"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn" id="preview-btn">Preview Reconciliation</button>
+    <button class="btn apply" id="apply-btn" disabled>Apply</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="summary" id="summary">
+    <div class="row"><span>Source project</span><span id="sum-source"></span></div>
+    <div class="row"><span>Target project</span><span id="sum-target"></span></div>
+    <div class="row tag-edit-row">
+      <span>Tag</span>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="tag-input" style="flex:1">
+        <button class="btn" id="preview-tag-btn">Preview</button>
+      </div>
+      <div class="tag-hint" id="tag-hint">Editing this requires a fresh preview: press Enter or click Preview before Apply is enabled.</div>
+    </div>
+    <div class="row">
+      <span>Clips used in source (tagged)</span>
+      <span id="sum-used"></span>
+    </div>
+    <div class="row sub">
+      <span>- already in sync (no change needed)</span>
+      <span id="sum-synced"></span>
+    </div>
+
+    <div class="clip-group updated" id="group-updated">
+      <h3 id="updated-title">Will gain keywords</h3>
+      <ul id="list-updated"></ul>
+    </div>
+    <div class="clip-group unmatched" id="group-unmatched">
+      <h3 id="unmatched-title">No match in target project</h3>
+      <ul id="list-unmatched"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  const targetInput = document.getElementById('target-input');
+  const currentProjectHint = document.getElementById('current-project-hint');
+  const targetError = document.getElementById('target-error');
+  const previewBtn = document.getElementById('preview-btn');
+  const applyBtn = document.getElementById('apply-btn');
+  const statusEl = document.getElementById('status');
+  const summaryEl = document.getElementById('summary');
+  const tagInput = document.getElementById('tag-input');
+  const tagHint = document.getElementById('tag-hint');
+  const previewTagBtn = document.getElementById('preview-tag-btn');
+  const DEFAULT_TAG_HINT = tagHint.textContent;
+
+  let hasPreviewed = false;
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ── Initial load: current project + known projects for the datalist ──────
+
+  (async function initTargetField() {
+    try {
+      const [cfgRes, projRes] = await Promise.all([
+        fetch('/api/config/reconcile'),
+        fetch('/api/projects'),
+      ]);
+      const cfg = await cfgRes.json();
+      const proj = await projRes.json();
+
+      if (proj.current) {
+        let text = `Current project: ${proj.current}`;
+        if (proj.current_database) text += ` (${proj.current_database})`;
+        if (Array.isArray(proj.databases) && proj.databases.length) {
+          text += ` (will search: ${proj.databases.join(', ')})`;
+        }
+        currentProjectHint.textContent = text;
+      }
+      if (Array.isArray(proj.projects)) {
+        const list = document.getElementById('project-list');
+        list.innerHTML = proj.projects.map(p => `<option value="${escapeHtml(p)}">`).join('');
+      }
+      if (!targetInput.value.trim() && cfg.default_target_project) {
+        targetInput.value = cfg.default_target_project;
+      }
+    } catch (_) {
+      // Non-fatal — the field just starts blank with no suggestions.
+    }
+  })();
+
+  // ── Validation ────────────────────────────────────────────────────────────
+
+  function validateTarget() {
+    const val = targetInput.value.trim();
+    if (!val) {
+      targetInput.classList.add('invalid');
+      return false;
+    }
+    targetInput.classList.remove('invalid');
+    return true;
+  }
+
+  function validateTag() {
+    const val = tagInput.value;
+    if (val.includes(',') || val.includes(';')) {
+      tagInput.classList.add('invalid');
+      tagHint.textContent = 'Tag cannot contain commas or semicolons; those separate keywords.';
+      tagHint.classList.add('error');
+      return false;
+    }
+    tagInput.classList.remove('invalid');
+    tagHint.classList.remove('error');
+    tagHint.textContent = DEFAULT_TAG_HINT;
+    return true;
+  }
+
+  // ── Rendering ─────────────────────────────────────────────────────────────
+
+  function renderResult(data, applied) {
+    document.getElementById('sum-source').textContent = data.source_database
+      ? `${data.source_project} (${data.source_database})` : data.source_project;
+    document.getElementById('sum-target').textContent = data.target_database
+      ? `${data.target_project} (${data.target_database})` : data.target_project;
+    tagInput.value = data.tag; // reflect exactly what this run used
+    document.getElementById('sum-used').textContent = data.used_count;
+    document.getElementById('sum-synced').textContent = data.already_synced;
+
+    document.getElementById('updated-title').textContent =
+      (applied ? 'Gained keywords' : 'Will gain keywords') + ` (${data.updated.length})`;
+    document.getElementById('unmatched-title').textContent =
+      `No match in target project (${data.unmatched.length})`;
+
+    const updatedList = document.getElementById('list-updated');
+    updatedList.innerHTML = data.updated.map(u =>
+      `<li>${escapeHtml(u.clip)}: <span class="added">+${u.added.map(escapeHtml).join(', ')}</span></li>`
+    ).join('');
+
+    const unmatchedList = document.getElementById('list-unmatched');
+    unmatchedList.innerHTML = data.unmatched.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+
+    document.getElementById('group-updated').classList.toggle('empty', data.updated.length === 0);
+    document.getElementById('group-unmatched').classList.toggle('empty', data.unmatched.length === 0);
+
+    summaryEl.style.display = 'block';
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  async function runReconcile(dryRun) {
+    if (!validateTarget()) {
+      targetError.textContent = 'Target project is required.';
+      targetError.classList.add('error');
+      return;
+    }
+    if (!validateTag()) return;
+
+    previewBtn.disabled = true;
+    applyBtn.disabled = true;
+    statusEl.className = '';
+    statusEl.innerHTML = `<span class="spinner"></span> ${dryRun ? 'Previewing' : 'Applying'}: switching Resolve to the target project…`;
+    if (dryRun) summaryEl.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/reconcile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dry_run: dryRun,
+          tag: tagInput.value.trim(),
+          target_project: targetInput.value.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error: ' + data.error;
+        return;
+      }
+      const restoreWarning = data.source_restored === false
+        ? ` WARNING: could not switch Resolve back to ${data.source_project} — check it manually in Resolve.`
+        : '';
+      if (dryRun) {
+        statusEl.textContent = restoreWarning ? restoreWarning.trim() : '';
+        statusEl.className = restoreWarning ? 'error' : '';
+        hasPreviewed = true;
+        renderResult(data, false);
+        applyBtn.disabled = (data.updated.length === 0);
+      } else {
+        statusEl.className = restoreWarning ? 'error' : 'success';
+        statusEl.textContent = `Updated ${data.updated.length} clip(s) in ${data.target_project}.${restoreWarning}`;
+        renderResult(data, true);
+      }
+    } catch (e) {
+      statusEl.className = 'error';
+      statusEl.textContent = (dryRun ? 'Preview' : 'Apply') + ' failed: ' + e;
+    } finally {
+      previewBtn.disabled = false;
+      if (!dryRun) applyBtn.disabled = true; // require a fresh preview before applying again
+    }
+  }
+
+  previewBtn.addEventListener('click', () => runReconcile(true));
+  applyBtn.addEventListener('click', () => runReconcile(false));
+  previewTagBtn.addEventListener('click', () => runReconcile(true));
+
+  tagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runReconcile(true);
+    }
+  });
+
+  // Editing the tag or the target after a preview invalidates it — force a
+  // fresh preview (via Enter or the Preview button) before Apply is usable.
+  tagInput.addEventListener('input', () => {
+    validateTag();
+    if (hasPreviewed) applyBtn.disabled = true;
+  });
+  targetInput.addEventListener('input', () => {
+    targetError.textContent = '';
+    targetError.classList.remove('error');
+    if (hasPreviewed) applyBtn.disabled = true;
+  });
+</script>
+
+</body>
+</html>

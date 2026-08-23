@@ -35,6 +35,20 @@ def _parse_keywords(raw: str) -> list[str]:
     return [kw.strip() for kw in raw.split(",") if kw.strip()]
 
 
+def _parse_frames(raw: str) -> int | None:
+    """Parse the ExportMetadata "Frames" column into an int. Returns None
+    if missing/unparseable — a total frame count derived from the actual
+    video content, used alongside Date Modified as a copy-resistant
+    cross-project clip identity signal (see resolve_api.reconcile_project_keywords)."""
+    s = raw.strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
 def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
     """Parse a DaVinci Resolve ExportMetadata CSV (UTF-16) into a list of clip dicts.
 
@@ -44,6 +58,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
         keywords    : list[str]     — parsed keyword list (may be empty)
         date        : datetime|None — Date Modified, or None if unparseable
         duration_tc : str           — Duration TC string (e.g. "00:00:11:26")
+        frames      : int|None      — total frame count, or None if unparseable
         good_take   : bool          — True if Tag column is "1" (Good Take in Resolve)
 
     Rows without a Clip Directory are skipped (they are bin/folder entries).
@@ -67,6 +82,7 @@ def parse_export_csv(path: str | Path) -> list[dict[str, Any]]:
                 "keywords": _parse_keywords(row.get("Keywords") or ""),
                 "date": _parse_date(row.get("Date Modified") or ""),
                 "duration_tc": (row.get("Duration TC") or "").strip(),
+                "frames": _parse_frames(row.get("Frames") or ""),
                 "good_take": (row.get("Tag") or "").strip() == "1",
             })
 
@@ -91,6 +107,7 @@ def parse_export_csv_text(text: str) -> list[dict[str, Any]]:
             "keywords": _parse_keywords(row.get("Keywords") or ""),
             "date": _parse_date(row.get("Date Modified") or ""),
             "duration_tc": (row.get("Duration TC") or "").strip(),
+            "frames": _parse_frames(row.get("Frames") or ""),
             "good_take": (row.get("Tag") or "").strip() == "1",
         })
     return clips
