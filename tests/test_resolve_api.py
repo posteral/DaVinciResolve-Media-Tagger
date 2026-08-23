@@ -1681,5 +1681,594 @@ class TestNavigateClip(unittest.TestCase):
         self.assertIsInstance(timing, dict)
 
 
+class TestCollectTimelineMedia(unittest.TestCase):
+    """Tests for resolve_api._collect_timeline_media."""
+
+    def _make_item(self, media_pool_item):
+        item = MagicMock()
+        item.GetMediaPoolItem.return_value = media_pool_item
+        return item
+
+    def _make_timeline(self, video_tracks, audio_tracks):
+        """video_tracks/audio_tracks: list of lists of items, one list per track."""
+        timeline = MagicMock()
+
+        def track_count(track_type):
+            return len(video_tracks) if track_type == "video" else len(audio_tracks)
+
+        def item_list(track_type, index):
+            tracks = video_tracks if track_type == "video" else audio_tracks
+            return tracks[index - 1]
+
+        timeline.GetTrackCount.side_effect = track_count
+        timeline.GetItemListInTrack.side_effect = item_list
+        return timeline
+
+    def test_collects_clip_from_video_track(self):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = "id1"
+        timeline = self._make_timeline([[self._make_item(clip)]], [])
+        result = resolve_api._collect_timeline_media(timeline)
+        self.assertEqual(result, {"id1": clip})
+
+    def test_dedups_same_clip_across_video_and_audio_tracks(self):
+        clip = MagicMock()
+        clip.GetMediaId.return_value = "id1"
+        timeline = self._make_timeline([[self._make_item(clip)]], [[self._make_item(clip)]])
+        result = resolve_api._collect_timeline_media(timeline)
+        self.assertEqual(len(result), 1)
+
+    def test_skips_items_with_no_media_pool_item(self):
+        timeline = self._make_timeline([[self._make_item(None)]], [])
+        result = resolve_api._collect_timeline_media(timeline)
+        self.assertEqual(result, {})
+
+    def test_empty_timeline_returns_empty_dict(self):
+        timeline = self._make_timeline([], [])
+        self.assertEqual(resolve_api._collect_timeline_media(timeline), {})
+
+    def test_walks_multiple_tracks(self):
+        clip_a, clip_b = MagicMock(), MagicMock()
+        clip_a.GetMediaId.return_value = "a"
+        clip_b.GetMediaId.return_value = "b"
+        timeline = self._make_timeline(
+            [[self._make_item(clip_a)], [self._make_item(clip_b)]], []
+        )
+        result = resolve_api._collect_timeline_media(timeline)
+        self.assertEqual(set(result.keys()), {"a", "b"})
+
+
+class _UsedTagTestMixin:
+    """Shared clip-mock helper for tests around Used:... keyword tags."""
+
+    def _make_clip(self, name, keywords, media_id=None):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        clip.GetMediaId.return_value = media_id or name
+        joined = ",".join(keywords)
+        clip.GetMetadata.side_effect = lambda key=None: (
+            {"Keywords": joined} if key is None else (joined if key == "Keywords" else None)
+        )
+        clip.GetClipProperty.return_value = ""
+        return clip
+
+
+class TestMajorityUsedTag(_UsedTagTestMixin, unittest.TestCase):
+    """Tests for resolve_api._majority_used_tag (strict majority required)."""
+
+    def test_returns_none_for_empty_list(self):
+        self.assertIsNone(resolve_api._majority_used_tag([]))
+
+    def test_returns_none_when_no_used_tag(self):
+        clips = [self._make_clip("a", ["France"]), self._make_clip("b", ["Alex"])]
+        self.assertIsNone(resolve_api._majority_used_tag(clips))
+
+    def test_returns_tag_with_strict_majority(self):
+        clips = [
+            self._make_clip("a", ["Used:FruitBat"]),
+            self._make_clip("b", ["Used:FruitBat"]),
+            self._make_clip("c", ["Used:Other"]),
+        ]
+        self.assertEqual(resolve_api._majority_used_tag(clips), "Used:FruitBat")
+
+    def test_returns_none_at_exactly_half(self):
+        clips = [self._make_clip("a", ["Used:A"]), self._make_clip("b", ["Used:B"])]
+        self.assertIsNone(resolve_api._majority_used_tag(clips))
+
+    def test_case_insensitive_count_preserves_first_casing(self):
+        clips = [
+            self._make_clip("a", ["Used:FruitBat"]),
+            self._make_clip("b", ["used:fruitbat"]),
+            self._make_clip("c", ["USED:FRUITBAT"]),
+        ]
+        self.assertEqual(resolve_api._majority_used_tag(clips), "Used:FruitBat")
+
+
+class TestSyncTimelineUsedTag(_UsedTagTestMixin, unittest.TestCase):
+    """Tests for resolve_api.sync_timeline_used_tag. _collect_timeline_media is
+    patched directly in each test (it has its own dedicated tests above) so
+    these focus purely on the tag-diff/write logic."""
+
+    def _make_resolve(self, all_clips, project_name="MyProject"):
+        resolve = MagicMock()
+        project = resolve.GetProjectManager.return_value.GetCurrentProject.return_value
+        project.GetName.return_value = project_name
+        root = project.GetMediaPool.return_value.GetRootFolder.return_value
+        root.GetClipList.return_value = all_clips
+        root.GetSubFolderList.return_value = []
+        return resolve
+
+    def test_no_current_project_raises(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value = None
+        with self.assertRaises(RuntimeError):
+            resolve_api.sync_timeline_used_tag(resolve)
+
+    def test_no_active_timeline_raises(self):
+        resolve = self._make_resolve([])
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value.GetCurrentTimeline.return_value = None
+        with self.assertRaises(RuntimeError):
+            resolve_api.sync_timeline_used_tag(resolve)
+
+    def test_no_media_pool_raises(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value.GetMediaPool.return_value = None
+        with self.assertRaises(RuntimeError):
+            resolve_api.sync_timeline_used_tag(resolve)
+
+    def test_tag_with_comma_raises(self):
+        resolve = self._make_resolve([])
+        with patch("resolve_api._collect_timeline_media", return_value={}):
+            with self.assertRaises(RuntimeError):
+                resolve_api.sync_timeline_used_tag(resolve, tag="Bad,Tag")
+
+    def test_default_tag_falls_back_to_project_name(self):
+        clip = self._make_clip("a.mp4", [])
+        resolve = self._make_resolve([clip], project_name="Riverside Film")
+        with patch("resolve_api._collect_timeline_media", return_value={"a.mp4": clip}):
+            result = resolve_api.sync_timeline_used_tag(resolve, dry_run=True)
+        self.assertEqual(result["tag"], "Used:Riverside Film")
+
+    def test_default_tag_uses_existing_majority_tag(self):
+        clip1 = self._make_clip("a.mp4", ["Used:Custom"])
+        clip2 = self._make_clip("b.mp4", ["Used:Custom"])
+        resolve = self._make_resolve([clip1, clip2])
+        with patch("resolve_api._collect_timeline_media",
+                   return_value={"a.mp4": clip1, "b.mp4": clip2}):
+            result = resolve_api.sync_timeline_used_tag(resolve, dry_run=True)
+        self.assertEqual(result["tag"], "Used:Custom")
+
+    def test_adds_tag_to_newly_used_clip(self):
+        clip = self._make_clip("a.mp4", ["France"], media_id="id1")
+        resolve = self._make_resolve([clip])
+        with patch("resolve_api._collect_timeline_media", return_value={"id1": clip}):
+            result = resolve_api.sync_timeline_used_tag(resolve, tag="Used:X", dry_run=False)
+        self.assertEqual(result["added"], ["a.mp4"])
+        written = clip.SetMetadata.call_args[0][1]
+        self.assertIn("Used:X", written)
+        self.assertIn("France", written)
+
+    def test_removes_tag_from_no_longer_used_clip(self):
+        clip = self._make_clip("a.mp4", ["France", "Used:X"], media_id="id1")
+        resolve = self._make_resolve([clip])
+        with patch("resolve_api._collect_timeline_media", return_value={}):
+            result = resolve_api.sync_timeline_used_tag(resolve, tag="Used:X", dry_run=False)
+        self.assertEqual(result["removed"], ["a.mp4"])
+        written = clip.SetMetadata.call_args[0][1]
+        self.assertNotIn("Used:X", written)
+        self.assertIn("France", written)
+
+    def test_dry_run_does_not_write(self):
+        clip = self._make_clip("a.mp4", ["France"], media_id="id1")
+        resolve = self._make_resolve([clip])
+        with patch("resolve_api._collect_timeline_media", return_value={"id1": clip}):
+            resolve_api.sync_timeline_used_tag(resolve, tag="Used:X", dry_run=True)
+        clip.SetMetadata.assert_not_called()
+
+    def test_already_tagged_and_untouched_counts(self):
+        used_and_tagged = self._make_clip("a.mp4", ["Used:X"], media_id="id1")
+        unused_and_untagged = self._make_clip("b.mp4", ["France"], media_id="id2")
+        resolve = self._make_resolve([used_and_tagged, unused_and_untagged])
+        with patch("resolve_api._collect_timeline_media", return_value={"id1": used_and_tagged}):
+            result = resolve_api.sync_timeline_used_tag(resolve, tag="Used:X", dry_run=True)
+        self.assertEqual(result["already_tagged"], 1)
+        self.assertEqual(result["untouched"], 1)
+        self.assertEqual(result["added"], [])
+        self.assertEqual(result["removed"], [])
+
+
+class TestDominantUsedTag(unittest.TestCase):
+    """Tests for resolve_api._dominant_used_tag (mode, no majority threshold —
+    contrast with TestMajorityUsedTag above)."""
+
+    def test_returns_none_for_empty(self):
+        self.assertIsNone(resolve_api._dominant_used_tag([]))
+
+    def test_returns_none_when_no_used_tag(self):
+        self.assertIsNone(resolve_api._dominant_used_tag([["France"], ["Alex"]]))
+
+    def test_returns_mode_without_majority_requirement(self):
+        # 2 vs 1 vs 1 — no strict majority, unlike _majority_used_tag.
+        result = resolve_api._dominant_used_tag(
+            [["Used:A"], ["Used:A"], ["Used:B"], ["Used:C"]]
+        )
+        self.assertEqual(result, "Used:A")
+
+    def test_case_insensitive_count_preserves_first_casing(self):
+        result = resolve_api._dominant_used_tag([["Used:FruitBat"], ["used:fruitbat"]])
+        self.assertEqual(result, "Used:FruitBat")
+
+
+class TestCollectClipLookupRecursive(unittest.TestCase):
+    """Tests for resolve_api._collect_clip_lookup_recursive."""
+
+    def _make_clip(self, name, frames):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        clip.GetClipProperty.side_effect = lambda k: (
+            str(frames) if k == "Frames" and frames is not None else ""
+        )
+        return clip
+
+    def _make_folder(self, clips, subfolders=None):
+        folder = MagicMock()
+        folder.GetClipList.return_value = clips
+        folder.GetSubFolderList.return_value = subfolders or []
+        return folder
+
+    def test_keys_by_name_and_frames(self):
+        clip = self._make_clip("a.mp4", 480)
+        result: dict = {}
+        resolve_api._collect_clip_lookup_recursive(self._make_folder([clip]), result)
+        self.assertEqual(result, {("a.mp4", 480): clip})
+
+    def test_skips_clips_with_unparseable_frames(self):
+        clip = self._make_clip("a.mp4", None)
+        result: dict = {}
+        resolve_api._collect_clip_lookup_recursive(self._make_folder([clip]), result)
+        self.assertEqual(result, {})
+
+    def test_recurses_into_subfolders(self):
+        sub = self._make_folder([self._make_clip("b.mp4", 100)])
+        root = self._make_folder([self._make_clip("a.mp4", 480)], subfolders=[sub])
+        result: dict = {}
+        resolve_api._collect_clip_lookup_recursive(root, result)
+        self.assertEqual(set(result.keys()), {("a.mp4", 480), ("b.mp4", 100)})
+
+
+class TestListProjects(unittest.TestCase):
+    """Tests for resolve_api.list_projects."""
+
+    def test_returns_current_projects_and_databases(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        pm.GetCurrentProject.return_value.GetName.return_value = "Northlight"
+        pm.GetCurrentDatabase.return_value = {"DbType": "Disk", "DbName": "External"}
+        pm.GetProjectListInCurrentFolder.return_value = ["Riverside Film", "Northlight"]
+        pm.GetDatabaseList.return_value = [
+            {"DbType": "Disk", "DbName": "External"},
+            {"DbType": "Disk", "DbName": "Internal"},
+        ]
+        result = resolve_api.list_projects(resolve)
+        self.assertEqual(result["current"], "Northlight")
+        self.assertEqual(result["current_database"], "External")
+        self.assertEqual(result["projects"], ["Northlight", "Riverside Film"])
+        self.assertEqual(result["databases"], ["External", "Internal"])
+
+    def test_returns_empty_structure_when_no_project_manager(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value = None
+        result = resolve_api.list_projects(resolve)
+        self.assertEqual(
+            result, {"current": "", "current_database": "", "projects": [], "databases": []}
+        )
+
+    def test_current_empty_string_when_no_current_project(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        pm.GetCurrentProject.return_value = None
+        pm.GetCurrentDatabase.return_value = {}
+        pm.GetProjectListInCurrentFolder.return_value = []
+        pm.GetDatabaseList.return_value = []
+        result = resolve_api.list_projects(resolve)
+        self.assertEqual(result["current"], "")
+
+    def test_calls_goto_root_folder(self):
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        pm.GetCurrentProject.return_value.GetName.return_value = "X"
+        pm.GetCurrentDatabase.return_value = {"DbName": "D"}
+        pm.GetProjectListInCurrentFolder.return_value = []
+        pm.GetDatabaseList.return_value = []
+        resolve_api.list_projects(resolve)
+        pm.GotoRootFolder.assert_called_once()
+
+
+class TestReconcileProjectKeywords(unittest.TestCase):
+    """Tests for resolve_api.reconcile_project_keywords.
+
+    This is the riskiest function added this session — it switches Resolve's
+    active project/database and writes real metadata — so coverage here
+    intentionally includes the exact failure modes discovered live during
+    development: SaveProject() must be called before switching away, the
+    switch-back must be verified/retried (not just fired and forgotten), and
+    matching must be resilient to a target catalog spanning a different
+    database than the source project.
+    """
+
+    def _make_clip(self, name, keywords, frames=100):
+        clip = MagicMock()
+        clip.GetName.return_value = name
+        joined = ",".join(keywords)
+        clip.GetMetadata.side_effect = lambda key=None: (
+            {"Keywords": joined} if key is None else (joined if key == "Keywords" else None)
+        )
+        clip.GetClipProperty.side_effect = lambda k: (
+            str(frames) if k == "Frames" and frames is not None else ""
+        )
+        return clip
+
+    def _make_folder(self, clips):
+        folder = MagicMock()
+        folder.GetClipList.return_value = clips
+        folder.GetSubFolderList.return_value = []
+        return folder
+
+    def _write_target_csv(self, path, rows):
+        """rows: list of (file_name, frames, keywords_str)."""
+        lines = ["File Name,Clip Directory,Keywords,Date Modified,Frames,Tag"]
+        for name, frames, kws in rows:
+            lines.append(f"{name},/vol/dir,{kws},Wed Jan  1 10:00:00 2025,{frames},0")
+        with open(path, "w", encoding="utf-16", newline="") as f:
+            f.write("\n".join(lines) + "\n")
+
+    def _make_resolve(
+        self,
+        source_clips,
+        target_clips,
+        target_csv_rows,
+        source_name="SourceProj",
+        target_name="TargetProj",
+        databases=None,
+        save_ok=True,
+        load_target_ok=True,
+        load_source_ok=True,
+    ):
+        """Stateful mock simulating LoadProject/SetCurrentDatabase switching
+        between a source project (SourceDB) and a target project (TargetDB)."""
+        source_db = {"DbType": "Disk", "DbName": "SourceDB"}
+        target_db = {"DbType": "Disk", "DbName": "TargetDB"}
+        databases = databases if databases is not None else [source_db, target_db]
+
+        source_project = MagicMock()
+        source_project.GetName.return_value = source_name
+        source_project.GetMediaPool.return_value.GetRootFolder.return_value = (
+            self._make_folder(source_clips)
+        )
+
+        target_project = MagicMock()
+        target_project.GetName.return_value = target_name
+        target_project.GetMediaPool.return_value.GetRootFolder.return_value = (
+            self._make_folder(target_clips)
+        )
+
+        state = {"project": source_project, "database": source_db}
+
+        def load_project(name):
+            if name == target_name and load_target_ok:
+                state["project"] = target_project
+                return True
+            if name == source_name and load_source_ok:
+                state["project"] = source_project
+                return True
+            return False
+
+        def set_current_database(db):
+            state["database"] = db
+            return True
+
+        def project_list_in_current_folder():
+            return [target_name] if state["database"] == target_db else [source_name]
+
+        resolve = MagicMock()
+        pm = resolve.GetProjectManager.return_value
+        pm.GetCurrentProject.side_effect = lambda: state["project"]
+        pm.GetCurrentDatabase.side_effect = lambda: state["database"]
+        pm.LoadProject.side_effect = load_project
+        pm.SetCurrentDatabase.side_effect = set_current_database
+        pm.GetProjectListInCurrentFolder.side_effect = project_list_in_current_folder
+        pm.GetDatabaseList.return_value = databases
+        pm.SaveProject.return_value = save_ok
+        pm.GotoRootFolder.return_value = True
+
+        def fake_export_metadata(_resolve, csv_path):
+            self._write_target_csv(csv_path, target_csv_rows)
+            return True
+
+        return resolve, source_project, target_project, fake_export_metadata
+
+    def _run(self, resolve, fake_export_metadata, **kwargs):
+        with patch("resolve_api.export_metadata", side_effect=fake_export_metadata), \
+             patch("resolve_api.time.sleep"):
+            return resolve_api.reconcile_project_keywords(resolve, **kwargs)
+
+    # -- validation / guard clauses ------------------------------------
+
+    def test_no_current_project_raises(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value = None
+        with self.assertRaises(RuntimeError):
+            resolve_api.reconcile_project_keywords(resolve, "Target")
+
+    def test_no_media_pool_raises(self):
+        resolve = MagicMock()
+        resolve.GetProjectManager.return_value.GetCurrentProject.return_value.GetMediaPool.return_value = None
+        with self.assertRaises(RuntimeError):
+            resolve_api.reconcile_project_keywords(resolve, "Target")
+
+    def test_empty_target_name_raises(self):
+        resolve, _, _, fake_export = self._make_resolve([], [], [])
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="   ")
+
+    def test_target_same_as_source_raises_case_insensitive(self):
+        resolve, _, _, fake_export = self._make_resolve([], [], [], source_name="MyProj")
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="myproj")
+
+    def test_no_used_clips_and_no_tag_given_raises(self):
+        clip = self._make_clip("a.mp4", ["France"])  # no Used:... tag anywhere
+        resolve, _, _, fake_export = self._make_resolve([clip], [], [])
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="TargetProj")
+
+    def test_tag_with_comma_raises(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, _, _, fake_export = self._make_resolve([clip], [], [])
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="TargetProj", tag="Bad,Tag")
+
+    # -- project/database switching safety -----------------------------
+
+    def test_save_failure_aborts_before_switching(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, _, _, fake_export = self._make_resolve([clip], [], [], save_ok=False)
+        pm = resolve.GetProjectManager.return_value
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="TargetProj")
+        pm.LoadProject.assert_not_called()
+
+    def test_target_not_found_in_any_database_raises_and_restores(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, source_project, _, fake_export = self._make_resolve(
+            [clip], [], [], databases=[{"DbType": "Disk", "DbName": "SourceDB"}],
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run(resolve, fake_export, target_project_name="Nonexistent")
+        self.assertIn("Nonexistent", str(ctx.exception))
+        self.assertIs(resolve.GetProjectManager.return_value.GetCurrentProject(), source_project)
+
+    def test_load_target_failure_raises_and_restores_source(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, source_project, _, fake_export = self._make_resolve(
+            [clip], [], [], load_target_ok=False,
+        )
+        with self.assertRaises(RuntimeError):
+            self._run(resolve, fake_export, target_project_name="TargetProj")
+        self.assertIs(resolve.GetProjectManager.return_value.GetCurrentProject(), source_project)
+
+    def test_target_found_in_current_database_skips_database_search(self):
+        clip = self._make_clip("a.mp4", ["Used:X"], frames=100)
+        resolve, _, _, fake_export = self._make_resolve([clip], [], [])
+        pm = resolve.GetProjectManager.return_value
+        pm.GetProjectListInCurrentFolder.side_effect = lambda: ["SourceProj", "TargetProj"]
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        pm.GetDatabaseList.assert_not_called()
+        self.assertEqual(result["target_database"], "SourceDB")
+
+    def test_source_restored_after_run(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, source_project, _, fake_export = self._make_resolve([clip], [], [])
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertTrue(result["source_restored"])
+        self.assertIs(resolve.GetProjectManager.return_value.GetCurrentProject(), source_project)
+
+    def test_source_restored_false_when_switch_back_fails(self):
+        clip = self._make_clip("a.mp4", ["Used:X"])
+        resolve, _, _, fake_export = self._make_resolve([clip], [], [], load_source_ok=False)
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertFalse(result["source_restored"])
+
+    # -- matching / merge logic -----------------------------------------
+
+    def test_dry_run_computes_diff_without_writing(self):
+        source_clip = self._make_clip("a.mp4", ["Used:X", "France"], frames=480)
+        target_clip = self._make_clip("a.mp4", [], frames=480)
+        resolve, _, _, fake_export = self._make_resolve(
+            [source_clip], [target_clip], [("a.mp4", 480, "")],
+        )
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertEqual(len(result["updated"]), 1)
+        self.assertEqual(result["updated"][0]["clip"], "a.mp4")
+        self.assertCountEqual(result["updated"][0]["added"], ["Used:X", "France"])
+        target_clip.SetMetadata.assert_not_called()
+        self.assertFalse(result["applied"])
+
+    def test_apply_writes_union_and_saves_target(self):
+        source_clip = self._make_clip("a.mp4", ["Used:X", "France"], frames=480)
+        target_clip = self._make_clip("a.mp4", ["Louvre"], frames=480)
+        resolve, _, _, fake_export = self._make_resolve(
+            [source_clip], [target_clip], [("a.mp4", 480, "Louvre")],
+        )
+        pm = resolve.GetProjectManager.return_value
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=False
+        )
+        written = target_clip.SetMetadata.call_args[0][1]
+        self.assertIn("Louvre", written)
+        self.assertIn("Used:X", written)
+        self.assertIn("France", written)
+        pm.SaveProject.assert_called()
+        self.assertTrue(result["applied"])
+        self.assertEqual(result["target_database"], "TargetDB")
+
+    def test_already_synced_when_target_already_has_all_keywords(self):
+        source_clip = self._make_clip("a.mp4", ["Used:X"], frames=480)
+        target_clip = self._make_clip("a.mp4", ["Used:X"], frames=480)
+        resolve, _, _, fake_export = self._make_resolve(
+            [source_clip], [target_clip], [("a.mp4", 480, "Used:X")],
+        )
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertEqual(result["already_synced"], 1)
+        self.assertEqual(result["updated"], [])
+        target_clip.SetMetadata.assert_not_called()
+
+    def test_unmatched_when_no_frame_count_match_in_target(self):
+        source_clip = self._make_clip("a.mp4", ["Used:X"], frames=480)
+        resolve, _, _, fake_export = self._make_resolve([source_clip], [], [])
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertEqual(result["unmatched"], ["a.mp4"])
+
+    def test_unmatched_when_source_clip_missing_frame_count(self):
+        source_clip = self._make_clip("a.mp4", ["Used:X"], frames=None)
+        resolve, _, _, fake_export = self._make_resolve([source_clip], [], [])
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertEqual(result["unmatched"], ["a.mp4"])
+
+    def test_unmatched_when_matched_via_csv_but_missing_from_live_object_walk(self):
+        # target_csv_rows says (a.mp4, 480) exists, but the live object walk
+        # (target_clips) doesn't have it — simulates the tree changing
+        # mid-operation; must surface as unmatched, not crash or silently drop.
+        source_clip = self._make_clip("a.mp4", ["Used:X", "France"], frames=480)
+        resolve, _, _, fake_export = self._make_resolve(
+            [source_clip], [], [("a.mp4", 480, "")],
+        )
+        result = self._run(
+            resolve, fake_export, target_project_name="TargetProj", tag="Used:X", dry_run=True
+        )
+        self.assertEqual(result["unmatched"], ["a.mp4"])
+
+    def test_uses_dominant_tag_when_none_given(self):
+        clip1 = self._make_clip("a.mp4", ["Used:MyTag"], frames=100)
+        clip2 = self._make_clip("b.mp4", ["Used:MyTag"], frames=200)
+        resolve, _, _, fake_export = self._make_resolve([clip1, clip2], [], [])
+        result = self._run(resolve, fake_export, target_project_name="TargetProj", dry_run=True)
+        self.assertEqual(result["tag"], "Used:MyTag")
+
+
 if __name__ == "__main__":
     unittest.main()
