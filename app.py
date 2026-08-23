@@ -18,20 +18,24 @@ import search_index
 
 app = Flask(__name__)
 
-# Pinned keywords — loaded from keywords_config.json if present, else template.
-def _load_pinned_keywords() -> list[str]:
+# App config — loaded from keywords_config.json if present, else template.
+def _load_config() -> dict:
     base = os.path.dirname(os.path.abspath(__file__))
     for name in ("keywords_config.json", "keywords_config.template.json"):
         path = os.path.join(base, name)
         if os.path.exists(path):
             try:
                 with open(path, encoding="utf-8") as f:
-                    return json.load(f).get("pinned_keywords", [])
+                    return json.load(f)
             except Exception:
                 pass
-    return []
+    return {}
 
-_PINNED_KEYWORDS: list[str] = _load_pinned_keywords()
+_CONFIG: dict = _load_config()
+_PINNED_KEYWORDS: list[str] = _CONFIG.get("pinned_keywords", [])
+# Default target project pre-filled on the Reconcile page — just a
+# suggestion, never enforced; the field stays freely editable per run.
+_DEFAULT_RECONCILE_TARGET: str = _CONFIG.get("default_reconcile_target", "")
 
 # Resolve scripting is not thread-safe: serialise every IPC call.
 _resolve_lock = threading.Lock()
@@ -647,6 +651,51 @@ def tag_timeline_used_media():
         if not already:
             threading.Thread(target=_refresh_catalog_bg, daemon=True).start()
 
+    return jsonify(result)
+
+
+@app.route("/reconcile")
+def reconcile_page():
+    return render_template("reconcile.html")
+
+
+@app.route("/api/config/reconcile")
+def reconcile_config():
+    return jsonify({"default_target_project": _DEFAULT_RECONCILE_TARGET})
+
+
+@app.route("/api/projects")
+def list_projects():
+    try:
+        with _resolve_lock_timeout():
+            resolve = _get_resolve()
+            result = resolve_api.list_projects(resolve)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify(result)
+
+
+@app.route("/api/reconcile", methods=["POST"])
+def reconcile_project():
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", True))
+    custom_tag = (body.get("tag") or "").strip() or None
+    target_project = (body.get("target_project") or "").strip()
+
+    try:
+        with _resolve_lock_timeout():
+            resolve = _get_resolve()
+            result = resolve_api.reconcile_project_keywords(
+                resolve, target_project, tag=custom_tag, dry_run=dry_run
+            )
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    # Nothing to invalidate here: the current project (restored before this
+    # returns) is never written to by this operation — only the target
+    # project's clips change, and we're not staying there.
     return jsonify(result)
 
 
