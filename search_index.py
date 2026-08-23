@@ -260,28 +260,36 @@ def search_histogram(
             if q:
                 fts_query = _build_fts_query(q)
                 gt_clause = " AND clips.good_take = 1" if good_take_only else ""
-                rows = con.execute(
-                    "SELECT clips.date_iso FROM clips_fts"
+                fts_rows = con.execute(
+                    "SELECT clips.id, clips.date_iso FROM clips_fts"
                     " JOIN clips ON clips.id = clips_fts.rowid"
                     f" WHERE clips_fts MATCH ?{gt_clause} AND clips.date_iso IS NOT NULL",
                     (fts_query,),
                 ).fetchall()
+                fname_rows = con.execute(
+                    "SELECT id, date_iso FROM clips"
+                    f" WHERE file_name LIKE ?{gt_clause} AND date_iso IS NOT NULL",
+                    (f"%{q}%",),
+                ).fetchall()
+                seen_ids: set = {r[0] for r in fts_rows}
+                date_isos = [r[1] for r in fts_rows] + [r[1] for r in fname_rows if r[0] not in seen_ids]
             else:
-                rows = con.execute(
+                raw_rows = con.execute(
                     "SELECT date_iso FROM clips"
                     " WHERE good_take = 1 AND date_iso IS NOT NULL",
                 ).fetchall()
+                date_isos = [r[0] for r in raw_rows]
         finally:
             con.close()
     except Exception:
         return {"buckets": [], "bucket_size": "month"}
 
-    if not rows:
+    if not date_isos:
         return {"buckets": [], "bucket_size": "month"}
 
     # Parse dates, drop unparseable.
     dates: list[datetime] = []
-    for (iso,) in rows:
+    for iso in date_isos:
         try:
             dates.append(datetime.fromisoformat(iso))
         except (ValueError, TypeError):
@@ -500,23 +508,26 @@ def search_clips(
                 # FTS path — optionally filtered to Good Takes.
                 fts_query = _build_fts_query(q)
                 gt_clause = " AND clips.good_take = 1" if good_take_only else ""
-                total_row = con.execute(
-                    "SELECT COUNT(*) FROM clips_fts"
-                    " JOIN clips ON clips.id = clips_fts.rowid"
-                    f" WHERE clips_fts MATCH ?{gt_clause}{date_clause}",
-                    [fts_query] + date_params,
-                ).fetchone()
-                total = total_row[0] if total_row else 0
-                rows = con.execute(
+                fts_rows = con.execute(
                     "SELECT clips.id, clips.file_name, clips.clip_dir,"
                     "       clips.keywords_raw, clips.date_iso, clips.duration_tc, clips.good_take, clips.proxy_path"
                     " FROM clips_fts"
                     " JOIN clips ON clips.id = clips_fts.rowid"
-                    f" WHERE clips_fts MATCH ?{gt_clause}{date_clause}"
-                    " ORDER BY clips.good_take DESC, clips.date_iso DESC, clips.file_name"
-                    " LIMIT ? OFFSET ?",
-                    [fts_query] + date_params + [limit, offset],
+                    f" WHERE clips_fts MATCH ?{gt_clause}{date_clause}",
+                    [fts_query] + date_params,
                 ).fetchall()
+                fname_rows = con.execute(
+                    "SELECT id, file_name, clip_dir, keywords_raw, date_iso, duration_tc, good_take, proxy_path"
+                    f" FROM clips WHERE file_name LIKE ?{gt_clause}{date_clause}",
+                    [f"%{q}%"] + date_params,
+                ).fetchall()
+                seen_ids: set[int] = {r["id"] for r in fts_rows}
+                merged = list(fts_rows) + [r for r in fname_rows if r["id"] not in seen_ids]
+                merged.sort(key=lambda r: r["file_name"] or "")
+                merged.sort(key=lambda r: r["date_iso"] or "", reverse=True)
+                merged.sort(key=lambda r: r["good_take"] or 0, reverse=True)
+                total = len(merged)
+                rows = merged[offset : offset + limit]
             else:
                 # No text query — Good Takes browse (no FTS join needed).
                 total_row = con.execute(
