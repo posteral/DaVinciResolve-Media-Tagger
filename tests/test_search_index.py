@@ -16,14 +16,17 @@ import search_index
 # ---------------------------------------------------------------------------
 
 # Minimal CSV with realistic column set but entirely fake data.
+# "Tag" (not "Good Take") is the real ExportMetadata column name for the
+# Good Take flag — confirmed against a live export; parse_export_csv reads
+# "Tag" deliberately, so the fixture must use that header too.
 _FIXTURE_CSV = textwrap.dedent("""\
-    File Name,Clip Directory,Duration TC,Shot Frame Rate,Keywords,People,Date Modified,Good Take
-    BIN_ENTRY,,07:15:32:20,24.000,,,,0
-    20240101_C0001.MP4,/Volumes/FakeDrive/2024/Video,00:00:11:26,50.000,"sunset,beach,Alice",Alice,Wed Jan  1 10:00:00 2025,1
-    20240102_C0002.MP4,/Volumes/FakeDrive/2024/Video,00:00:05:10,25.000,"ocean,waves",Bob,Thu Jan  2 12:30:00 2025,0
-    20240103_C0003.MP4,/Volumes/FakeDrive/2024/Video,00:00:30:00,50.000,,,"Fri Jan  3 09:15:00 2025",0
-    20240104_C0004.MP4,/Volumes/FakeDrive/2024/Video,00:00:08:00,100.000,"rolling hills",,"Sat Jan  4 14:00:00 2025",1
-    NO_FILENAME,,00:00:01:00,25.000,sunset,,Mon Jan  6 08:00:00 2025,0
+    File Name,Clip Directory,Duration TC,Shot Frame Rate,Keywords,People,Date Modified,Tag,Frames
+    BIN_ENTRY,,07:15:32:20,24.000,,,,0,
+    20240101_C0001.MP4,/Volumes/FakeDrive/2024/Video,00:00:11:26,50.000,"sunset,beach,Alice",Alice,Wed Jan  1 10:00:00 2025,1,550
+    20240102_C0002.MP4,/Volumes/FakeDrive/2024/Video,00:00:05:10,25.000,"ocean,waves",Bob,Thu Jan  2 12:30:00 2025,0,260
+    20240103_C0003.MP4,/Volumes/FakeDrive/2024/Video,00:00:30:00,50.000,,,"Fri Jan  3 09:15:00 2025",0,
+    20240104_C0004.MP4,/Volumes/FakeDrive/2024/Video,00:00:08:00,100.000,"rolling hills",,"Sat Jan  4 14:00:00 2025",1,400
+    NO_FILENAME,,00:00:01:00,25.000,sunset,,Mon Jan  6 08:00:00 2025,0,
 """)
 
 
@@ -73,6 +76,20 @@ class TestParseDate(unittest.TestCase):
         self.assertIsNone(search_index._parse_date("2025-01-01"))
 
 
+class TestParseFrames(unittest.TestCase):
+    def test_parses_valid_integer_string(self):
+        self.assertEqual(search_index._parse_frames("480"), 480)
+
+    def test_strips_whitespace(self):
+        self.assertEqual(search_index._parse_frames("  480  "), 480)
+
+    def test_returns_none_on_empty(self):
+        self.assertIsNone(search_index._parse_frames(""))
+
+    def test_returns_none_on_non_numeric(self):
+        self.assertIsNone(search_index._parse_frames("N/A"))
+
+
 class TestParseExportCsvText(unittest.TestCase):
     def _parse(self, csv_text=_FIXTURE_CSV):
         return search_index.parse_export_csv_text(csv_text)
@@ -115,12 +132,24 @@ class TestParseExportCsvText(unittest.TestCase):
         self.assertEqual(clips[0]["date"], datetime(2025, 1, 1, 10, 0, 0))
 
     def test_date_none_when_missing(self):
+        csv = "File Name,Clip Directory,Keywords,Date Modified\nclip.mp4,/vol/dir,sunset,\n"
+        clips = search_index.parse_export_csv_text(csv)
+        self.assertIsNone(clips[0]["date"])
+
+    def test_frames_parsed_as_int(self):
         clips = self._parse()
-        # 20240103_C0003.MP4 has an empty date field (quoted empty string)
+        c = next(c for c in clips if c["file_name"] == "20240101_C0001.MP4")
+        self.assertEqual(c["frames"], 550)
+
+    def test_frames_none_when_missing(self):
+        clips = self._parse()
         c = next(c for c in clips if c["file_name"] == "20240103_C0003.MP4")
-        # date field is empty string in quotes → should parse as None
-        # (the fixture has a date; adjust expectation)
-        self.assertIsInstance(c["date"], (datetime, type(None)))
+        self.assertIsNone(c["frames"])
+
+    def test_frames_none_when_column_absent(self):
+        csv = "File Name,Clip Directory,Keywords\nclip.mp4,/vol/dir,sunset\n"
+        clips = search_index.parse_export_csv_text(csv)
+        self.assertIsNone(clips[0]["frames"])
 
     def test_parses_duration_tc(self):
         clips = self._parse()
@@ -134,6 +163,7 @@ class TestParseExportCsvText(unittest.TestCase):
             self.assertIn("keywords", c)
             self.assertIn("date", c)
             self.assertIn("duration_tc", c)
+            self.assertIn("frames", c)
             self.assertIn("good_take", c)
 
     def test_good_take_true_when_column_is_1(self):
