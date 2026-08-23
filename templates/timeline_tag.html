@@ -142,14 +142,14 @@
         <input type="text" id="tag-input" style="flex:1">
         <button class="btn" id="preview-tag-btn">Preview</button>
       </div>
-      <div class="tag-hint" id="tag-hint">Editing this tag requires a fresh preview — press Enter or click Preview before Apply is enabled.</div>
+      <div class="tag-hint" id="tag-hint">Editing this tag requires a fresh preview: press Enter or click Preview before Apply is enabled.</div>
     </div>
     <div class="row">
       <span>Clips on timeline</span>
       <span id="sum-used"></span>
     </div>
     <div class="row sub">
-      <span>— already tagged (no change needed)</span>
+      <span>- already tagged (no change needed)</span>
       <span id="sum-already"></span>
     </div>
 
@@ -189,7 +189,7 @@
     const val = tagInput.value;
     if (val.includes(',') || val.includes(';')) {
       tagInput.classList.add('invalid');
-      tagHint.textContent = 'Tag cannot contain commas or semicolons — those separate keywords.';
+      tagHint.textContent = 'Tag cannot contain commas or semicolons; those separate keywords.';
       tagHint.classList.add('error');
       return false;
     }
@@ -209,7 +209,7 @@
     document.getElementById('add-title').textContent =
       (applied ? 'Tagged' : 'Will be tagged') + ` (${data.added.length})`;
     document.getElementById('remove-title').textContent =
-      (applied ? 'Untagged' : 'Will be untagged') + ` — no longer on the timeline (${data.removed.length})`;
+      (applied ? 'Untagged' : 'Will be untagged') + ` (no longer on the timeline) (${data.removed.length})`;
 
     renderList('list-add', data.added);
     renderList('list-remove', data.removed);
