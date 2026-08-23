@@ -552,6 +552,128 @@ def get_all_project_keywords(resolve: Any) -> list[str]:
     return sorted(result, key=str.casefold)
 
 
+def _collect_timeline_media(timeline: Any) -> dict[str, Any]:
+    """Return {media_id: MediaPoolItem} for every unique clip cut into any
+    video or audio track of `timeline`. Items with no backing Media Pool
+    item (generators, titles, adjustment clips, etc.) are skipped."""
+    used: dict[str, Any] = {}
+    for track_type in ("video", "audio"):
+        track_count = timeline.GetTrackCount(track_type) or 0
+        for track_index in range(1, track_count + 1):
+            for item in _as_sequence(timeline.GetItemListInTrack(track_type, track_index)):
+                mpi = item.GetMediaPoolItem()
+                if mpi is not None:
+                    used[mpi.GetMediaId()] = mpi
+    return used
+
+
+def _collect_all_clips(folder: Any, result: list) -> None:
+    """Recursively walk a Media Pool folder tree, collecting every clip."""
+    result.extend(_as_sequence(folder.GetClipList()))
+    for subfolder in _as_sequence(folder.GetSubFolderList()):
+        _collect_all_clips(subfolder, result)
+
+
+def _majority_used_tag(used_clips: Iterable[Any]) -> str | None:
+    """Return the `Used:...` keyword already carried by a strict majority of
+    `used_clips`, if any — so a previously-customised tag wins over
+    recomputing the default from the (possibly ugly) project name. Returns
+    None if no `Used:...` keyword reaches a majority."""
+    used_clips = list(used_clips)
+    if not used_clips:
+        return None
+
+    counts: dict[str, int] = {}
+    original: dict[str, str] = {}
+    for clip in used_clips:
+        for kw in get_keywords(clip):
+            if kw.lower().startswith("used:"):
+                low = kw.lower()
+                counts[low] = counts.get(low, 0) + 1
+                original.setdefault(low, kw)
+
+    if not counts:
+        return None
+    best_low, best_count = max(counts.items(), key=lambda kv: kv[1])
+    return original[best_low] if best_count > len(used_clips) / 2 else None
+
+
+def sync_timeline_used_tag(resolve: Any, dry_run: bool = False, tag: str | None = None) -> dict:
+    """Reconcile a keyword against the active timeline's current contents.
+    Adds the tag to clips newly cut into the timeline, removes it from
+    clips that no longer are. When dry_run=True, computes the same diff
+    without writing anything (preview mode).
+
+    `tag` overrides the default tag string — pass a stripped non-empty
+    string to use a custom tag instead. When omitted, the default is
+    whichever `Used:...` keyword already carries a majority of the clips
+    currently on the timeline (i.e. a previously-applied custom tag wins),
+    falling back to `Used:{project_name}` if no such majority tag exists.
+
+    Raises RuntimeError with a descriptive message if there's no current
+    project, no active timeline, no media pool, or the tag contains a
+    comma/semicolon (which would be split apart by the keyword storage
+    format).
+    """
+    project_manager = resolve.GetProjectManager()
+    project = project_manager.GetCurrentProject() if project_manager else None
+    if project is None:
+        raise RuntimeError("No current project")
+    timeline = project.GetCurrentTimeline()
+    if timeline is None:
+        raise RuntimeError("No active timeline")
+    media_pool = project.GetMediaPool()
+    if media_pool is None:
+        raise RuntimeError("No media pool")
+
+    project_name = project.GetName() or "Untitled Project"
+    used_by_id = _collect_timeline_media(timeline)
+
+    tag = (tag or "").strip()
+    if not tag:
+        tag = _majority_used_tag(used_by_id.values()) or f"Used:{project_name}"
+    if "," in tag or ";" in tag:
+        raise RuntimeError("Tag cannot contain commas or semicolons")
+
+    root = media_pool.GetRootFolder()
+    all_clips: list = []
+    if root is not None:
+        _collect_all_clips(root, all_clips)
+
+    added, removed, already_tagged, untouched = [], [], 0, 0
+    for clip in all_clips:
+        mid = clip.GetMediaId()
+        kws = get_keywords(clip)
+        has_tag = any(k.lower() == tag.lower() for k in kws)
+        should_have = mid in used_by_id
+
+        if should_have and has_tag:
+            already_tagged += 1
+        elif should_have and not has_tag:
+            if not dry_run:
+                set_keywords(clip, kws + [tag])
+            added.append(clip.GetName() or mid)
+        elif has_tag and not should_have:
+            if not dry_run:
+                set_keywords(clip, [k for k in kws if k.lower() != tag.lower()])
+            removed.append(clip.GetName() or mid)
+        else:
+            # Not on the timeline and correctly untagged — not relevant to this sync.
+            untouched += 1
+
+    return {
+        "project_name": project_name,
+        "timeline_name": timeline.GetName() or "",
+        "tag": tag,
+        "used_count": len(used_by_id),
+        "added": added,
+        "removed": removed,
+        "already_tagged": already_tagged,
+        "untouched": untouched,
+        "applied": not dry_run,
+    }
+
+
 def get_project_name(resolve: Any) -> str:
     """Return the current project name, or empty string on failure."""
     try:

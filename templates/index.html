@@ -320,13 +320,36 @@
     }
 
     h1 {
-      margin: 0 0 24px;
+      margin: 0;
       font-size: 1.1rem;
       font-weight: 600;
       color: #ccc;
       letter-spacing: 0.02em;
       text-transform: uppercase;
     }
+
+    .page-header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .page-nav {
+      display: flex;
+      gap: 14px;
+    }
+
+    .page-nav a {
+      font-size: 0.75rem;
+      font-weight: 400;
+      color: #888;
+      text-decoration: none;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    .page-nav a:hover { color: #ccc; }
 
     .btn-row {
       display: flex;
@@ -699,7 +722,12 @@
   <div class="clip-panel">
   <div id="filmstrip"></div>
   <div class="card">
-    <h1>Clip Keywords <a href="/search" style="font-size:0.75rem;font-weight:400;color:#888;text-decoration:none;margin-left:10px;">Shot Finder →</a></h1>
+    <div class="page-header">
+      <h1>Clip Keywords</h1>
+      <nav class="page-nav">
+        <a href="/">← Hub</a>
+      </nav>
+    </div>
 
     <div class="btn-row">
       <button id="refresh-btn" onclick="refresh()">

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Tagger</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 64px 24px;
+    }
+
+    h1 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    p.lead {
+      color: #999;
+      margin-bottom: 32px;
+      line-height: 1.5;
+    }
+
+    .pages {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .page-card {
+      display: block;
+      background: #222;
+      border: 1px solid #2e2e2e;
+      border-radius: 8px;
+      padding: 20px 24px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .page-card:hover { border-color: #4a4a4a; background: #262626; }
+
+    .page-card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .page-card p {
+      font-size: 0.85rem;
+      color: #999;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>Media Tagger</h1>
+  <p class="lead">Tools for tagging and searching your DaVinci Resolve media pool.</p>
+
+  <div class="pages">
+    <a class="page-card" href="/tagger">
+      <h2>Clip Keywords</h2>
+      <p>Tag the currently selected clip with keywords, one at a time, with AI and identity suggestions.</p>
+    </a>
+    <a class="page-card" href="/search">
+      <h2>Shot Finder</h2>
+      <p>Search and browse the whole project by keyword, with a date histogram and Good Takes view.</p>
+    </a>
+    <a class="page-card" href="/timeline-tag">
+      <h2>Tag Timeline</h2>
+      <p>Scan the active timeline and sync a keyword across every clip actually used in it.</p>
+    </a>
+  </div>
+</div>
+
+</body>
+</html>

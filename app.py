@@ -150,6 +150,11 @@ def _resolve_lock_timeout():
 
 
 @app.route("/")
+def hub():
+    return render_template("hub.html")
+
+
+@app.route("/tagger")
 def index():
     return render_template("index.html")
 
@@ -609,6 +614,40 @@ def confirm_identities():
 @app.route("/api/config/pinned-keywords")
 def pinned_keywords():
     return jsonify({"pinned_keywords": _PINNED_KEYWORDS})
+
+
+@app.route("/timeline-tag")
+def timeline_tag_page():
+    return render_template("timeline_tag.html")
+
+
+@app.route("/api/timeline/tag-used-media", methods=["POST"])
+def tag_timeline_used_media():
+    global _catalog_refresh_pending
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", True))
+    custom_tag = (body.get("tag") or "").strip() or None
+
+    try:
+        with _resolve_lock_timeout():
+            resolve = _get_resolve()
+            result = resolve_api.sync_timeline_used_tag(resolve, dry_run=dry_run, tag=custom_tag)
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    if not dry_run and (result["added"] or result["removed"]):
+        resolve_api.invalidate_folder_cache()
+        threading.Thread(target=_rebuild_folder_cache_bg, daemon=True).start()
+        with _catalog_lock:
+            already = _catalog_refresh_pending
+            if not already:
+                _catalog_refresh_pending = True
+        if not already:
+            threading.Thread(target=_refresh_catalog_bg, daemon=True).start()
+
+    return jsonify(result)
 
 
 # ---------------------------------------------------------------------------

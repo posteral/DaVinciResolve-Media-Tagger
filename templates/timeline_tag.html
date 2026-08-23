@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tag Timeline Media</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 24px;
+      background: #111;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .header h1 { font-size: 1.1rem; font-weight: 600; color: #fff; white-space: nowrap; }
+    .header a  { color: #888; font-size: 0.85rem; text-decoration: none; }
+    .header a:hover { color: #ccc; }
+
+    .content { padding: 24px; max-width: 720px; }
+
+    p.lead { color: #999; margin-bottom: 20px; line-height: 1.5; }
+
+    .btn-row { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+
+    .btn {
+      background: #2a3a2a;
+      border: 1px solid #3a5a3a;
+      border-radius: 4px;
+      color: #8ecf8e;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.9rem;
+      padding: 8px 16px;
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) { background: #3a4a3a; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn.apply { background: #2a344a; border-color: #3a4a6a; color: #8eb4cf; }
+    .btn.apply:hover:not(:disabled) { background: #3a4460; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #444;
+      border-top-color: #8ecf8e;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #status { color: #999; margin-bottom: 16px; }
+    #status.error { color: #cf8e8e; }
+    #status.success { color: #8ecf8e; }
+
+    .summary {
+      background: #1f1f1f;
+      border: 1px solid #2e2e2e;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .summary .row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+    .summary .row span:first-child { color: #999; }
+    .summary .tag-value { color: #fff; font-family: ui-monospace, monospace; }
+    .summary .sub { color: #777; font-size: 0.8rem; }
+
+    .tag-edit-row { flex-direction: column; align-items: stretch !important; padding: 8px 0 12px !important; }
+    .tag-edit-row > span:first-child { margin-bottom: 6px; }
+    #tag-input {
+      width: 100%;
+      background: #222;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #fff;
+      font-family: ui-monospace, monospace;
+      font-size: 0.9rem;
+      padding: 8px 12px;
+      outline: none;
+    }
+    #tag-input:focus { border-color: #5a8a5a; }
+    #tag-input.invalid { border-color: #9b4a4a; }
+    .tag-hint { font-size: 0.75rem; color: #666; margin-top: 4px; }
+    .tag-hint.error { color: #cf8e8e; }
+
+    .clip-group { margin-top: 14px; }
+    .clip-group h3 { font-size: 0.8rem; color: #999; margin-bottom: 6px; font-weight: 600; }
+    .clip-group ul { list-style: none; max-height: 160px; overflow-y: auto; }
+    .clip-group li {
+      font-size: 0.82rem;
+      color: #ccc;
+      padding: 3px 8px;
+      border-bottom: 1px solid #262626;
+    }
+    .clip-group.add h3 { color: #8ecf8e; }
+    .clip-group.remove h3 { color: #cf8e8e; }
+    .clip-group.empty { display: none; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Tag Timeline Media</h1>
+  <a href="/">← Hub</a>
+</div>
+
+<div class="content">
+  <p class="lead">
+    Scans the currently active timeline in Resolve, finds every unique piece
+    of media actually cut into it, and tags it with a project-specific
+    keyword (editable after the first scan). Re-running keeps the tag in
+    sync: clips no longer on the timeline have the tag removed.
+  </p>
+
+  <div class="btn-row">
+    <button class="btn" id="scan-btn">Scan Active Timeline</button>
+    <button class="btn apply" id="apply-btn" disabled>Apply</button>
+  </div>
+
+  <div id="status"></div>
+
+  <div class="summary" id="summary">
+    <div class="row"><span>Project</span><span id="sum-project"></span></div>
+    <div class="row"><span>Timeline</span><span id="sum-timeline"></span></div>
+    <div class="row tag-edit-row">
+      <span>Tag</span>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="tag-input" style="flex:1">
+        <button class="btn" id="preview-tag-btn">Preview</button>
+      </div>
+      <div class="tag-hint" id="tag-hint">Editing this tag requires a fresh preview — press Enter or click Preview before Apply is enabled.</div>
+    </div>
+    <div class="row">
+      <span>Clips on timeline</span>
+      <span id="sum-used"></span>
+    </div>
+    <div class="row sub">
+      <span>— already tagged (no change needed)</span>
+      <span id="sum-already"></span>
+    </div>
+
+    <div class="clip-group add" id="group-add">
+      <h3 id="add-title">Will be tagged</h3>
+      <ul id="list-add"></ul>
+    </div>
+    <div class="clip-group remove" id="group-remove">
+      <h3 id="remove-title">Will be untagged (no longer on the timeline)</h3>
+      <ul id="list-remove"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  const scanBtn = document.getElementById('scan-btn');
+  const applyBtn = document.getElementById('apply-btn');
+  const statusEl = document.getElementById('status');
+  const summaryEl = document.getElementById('summary');
+  const tagInput = document.getElementById('tag-input');
+  const tagHint = document.getElementById('tag-hint');
+  const previewTagBtn = document.getElementById('preview-tag-btn');
+  const DEFAULT_HINT = tagHint.textContent;
+
+  let hasScanned = false;
+
+  function renderList(ulId, names) {
+    const ul = document.getElementById(ulId);
+    ul.innerHTML = names.map(n => `<li>${escapeHtml(n)}</li>`).join('');
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function validateTag() {
+    const val = tagInput.value;
+    if (val.includes(',') || val.includes(';')) {
+      tagInput.classList.add('invalid');
+      tagHint.textContent = 'Tag cannot contain commas or semicolons — those separate keywords.';
+      tagHint.classList.add('error');
+      return false;
+    }
+    tagInput.classList.remove('invalid');
+    tagHint.classList.remove('error');
+    tagHint.textContent = DEFAULT_HINT;
+    return true;
+  }
+
+  function renderResult(data, applied) {
+    document.getElementById('sum-project').textContent = data.project_name;
+    document.getElementById('sum-timeline').textContent = data.timeline_name;
+    tagInput.value = data.tag; // reflect exactly what this scan/apply used
+    document.getElementById('sum-used').textContent = data.used_count;
+    document.getElementById('sum-already').textContent = data.already_tagged;
+
+    document.getElementById('add-title').textContent =
+      (applied ? 'Tagged' : 'Will be tagged') + ` (${data.added.length})`;
+    document.getElementById('remove-title').textContent =
+      (applied ? 'Untagged' : 'Will be untagged') + ` — no longer on the timeline (${data.removed.length})`;
+
+    renderList('list-add', data.added);
+    renderList('list-remove', data.removed);
+
+    document.getElementById('group-add').classList.toggle('empty', data.added.length === 0);
+    document.getElementById('group-remove').classList.toggle('empty', data.removed.length === 0);
+
+    summaryEl.style.display = 'block';
+  }
+
+  async function runScan() {
+    if (!validateTag()) return;
+    scanBtn.disabled = true;
+    applyBtn.disabled = true;
+    statusEl.className = '';
+    statusEl.innerHTML = '<span class="spinner"></span> Scanning active timeline…';
+    summaryEl.style.display = 'none';
+
+    try {
+      const res = await fetch('/api/timeline/tag-used-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: true, tag: tagInput.value.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error: ' + data.error;
+        return;
+      }
+      statusEl.textContent = '';
+      hasScanned = true;
+      renderResult(data, false);
+      applyBtn.disabled = (data.added.length === 0 && data.removed.length === 0);
+    } catch (e) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'Scan failed: ' + e;
+    } finally {
+      scanBtn.disabled = false;
+    }
+  }
+
+  async function runApply() {
+    if (!validateTag()) return;
+    scanBtn.disabled = true;
+    applyBtn.disabled = true;
+    statusEl.className = '';
+    statusEl.innerHTML = '<span class="spinner"></span> Applying…';
+
+    try {
+      const res = await fetch('/api/timeline/tag-used-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: false, tag: tagInput.value.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'Error: ' + data.error;
+        return;
+      }
+      statusEl.className = 'success';
+      statusEl.textContent = `Tagged ${data.added.length} clip(s), untagged ${data.removed.length} clip(s).`;
+      renderResult(data, true);
+    } catch (e) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'Apply failed: ' + e;
+    } finally {
+      scanBtn.disabled = false;
+      applyBtn.disabled = true; // require a fresh scan before applying again
+    }
+  }
+
+  scanBtn.addEventListener('click', runScan);
+  applyBtn.addEventListener('click', runApply);
+  previewTagBtn.addEventListener('click', runScan);
+
+  tagInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runScan();
+    }
+  });
+
+  // Editing the tag after a scan invalidates that scan's preview — force a rescan
+  // (via Enter or the Preview button) before Apply is usable again.
+  tagInput.addEventListener('input', () => {
+    validateTag();
+    if (hasScanned) {
+      applyBtn.disabled = true;
+    }
+  });
+</script>
+
+</body>
+</html>
